@@ -1,0 +1,63 @@
+Yes, exactly! Once the server selection is implemented, adding a new server will be as simple as:
+
+    Open ServerConfig.cpp
+    Add one entry to the server list:
+
+cpp
+
+{
+    .name                    = "NewServer",
+    .classFunctionOffset     = 0x50,   // find with Cheat Engine
+    .singletonFunctionOffset = 0x10,   // almost always 0x10
+    .onTextMessageOffset     = 0x14,   // almost always 0x14
+    .onTalkOffset            = 0x10,   // almost always 0x10
+    .lightHackOffset         = 0xAC,   // either 0xAC or 0xB0
+},
+
+    Rebuild the DLL
+
+The only value you actually need to find per server is classFunctionOffset — everything else is almost always the same. You find it with Cheat Engine by:
+
+    Injecting the DLL with debug logging enabled
+    Watching what value gets captured in hooked_bindSingletonFunction
+    Adjusting the offset until functions are captured correctly
+
+So in practice adding a new server takes maybe 30 minutes of Cheat Engine work to find the one offset, then 2 minutes to add it to the code and rebuild.
+
+
+
+
+------
+
+
+what it means for the exordion server   New files:
+  - BotCore/ServerConfig.h — ServerConfig struct + extern g_serverConfig + ShowServerSelectionDialog() declaration
+  - BotCore/ServerConfig.cpp — 9-server table, Win32 window dialog (listbox + OK button, centered, topmost), message
+  loop, populates g_serverConfig on OK/double-click
+  Modified files:
+  - BotCore/BuildConfig.h — stripped all per-server #define blocks and #define BuildOption; kept one shared
+  callGlobalField_PATTERN (identical across all servers)
+  - BotCore/declarations.h — removed #if BUILD_EXORDION branch; always uses uintptr_t aliases
+  - BotCore/hooks.h — added #include "ServerConfig.h"
+  - BotCore/hooks.cpp — replaced classFunctionOffset, singletonFunctionOffset, onTextMessageOffset, onTalkOffset with
+  g_serverConfig.xxx
+  - BotCore/LocalPlayer.cpp — replaced lightHackOffset with g_serverConfig.lightHackOffset
+  - EasyBot_DLL.cpp — added ShowServerSelectionDialog() as the very first call in EasyBot(), before MH_Initialize()
+  One note on Exordion: That server used SmartPtr<T> (a two-field struct) as pointer types instead of bare uintptr_t.
+  Removing the compile-time branch means Exordion's offset config will work correctly, but if its game client actually
+  passes smart pointers on the stack the SmartPtr layout difference would need a separate solution.
+✻ Baked for 27m 0s · 3 background tasks still running (↓ to manage)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+> 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 3 bashes · ↓ to manageShow more9:05 PMThe note about Exordion means:
+Exordion uses a different internal pointer type called SmartPtr<T> (a struct with 2 fields: address + control block) instead of a simple uintptr_t pointer. The original code had a special #if BUILD_EXORDION branch that switched the pointer types for this reason.
+Now that the compile-time branch was removed, Exordion's offsets will load correctly from the server selection, BUT if Exordion's client actually passes SmartPtr objects on the stack when calling game functions, the bot might crash or misbehave when running on Exordion because it's expecting a simple pointer but getting a 2-field struct.
+In practice this means:
+
+All other servers (Realera, Miracle, etc.) → will work fine ✅
+Exordion → offsets load correctly, but may crash or not work properly when actually using bot functions ⚠️
+
+To fix Exordion properly later, you'd need to add a usesSmartPtr flag to the ServerConfig struct and handle the SmartPtr layout in the code. But that's a separate task.
+For now, rebuild the DLL and test with Realera — it should work fine. Exordion support can be fixed later when you need it.
+Go ahead and build in Visual Studio!

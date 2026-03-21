@@ -1,0 +1,517 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+package bot;
+
+
+service BotService {
+  // --- Container.h ---
+  rpc GetItem(bot_GetItemRequest) returns (google.protobuf.UInt64Value);
+  rpc GetItems(google.protobuf.UInt64Value) returns (bot_Uint64List);
+  rpc GetItemsCount(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc GetSlotPosition(bot_GetSlotPositionRequest) returns (bot_Position);
+  rpc GetContainerName(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+  rpc GetContainerId(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc GetContainerItem(google.protobuf.UInt64Value) returns (google.protobuf.UInt64Value);
+  rpc HasParent(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc GetCapacity(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc GetFirstIndex(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+
+  // --- Creature.h ---
+  rpc GetCreatureName(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+  rpc GetManaPercent(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetHealthPercent(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetSkull(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetDirection(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc IsDead(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsWalking(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc CanBeSeen(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsCovered(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc CanShoot(bot_CanShootRequest) returns (google.protobuf.BoolValue);
+
+  // --- Game.h ---
+  rpc SafeLogout(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Walk(google.protobuf.Int32Value) returns (google.protobuf.Empty);
+  rpc AutoWalkGame(bot_AutoWalkGameRequest) returns (google.protobuf.Empty);
+  rpc Turn(google.protobuf.Int32Value) returns (google.protobuf.Empty);
+  rpc Stop(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Move(bot_MoveRequest) returns (google.protobuf.Empty);
+  rpc MoveToParentContainer(bot_MoveToParentContainerRequest) returns (google.protobuf.Empty);
+  rpc Use(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc UseWith(bot_UseWithRequest) returns (google.protobuf.Empty);
+  rpc UseInventoryItem(google.protobuf.UInt32Value) returns (google.protobuf.Empty);
+  rpc UseInventoryItemWith(bot_UseInventoryItemWithRequest) returns (google.protobuf.Empty);
+  rpc FindItemInContainers(bot_FindItemInContainersRequest) returns (google.protobuf.UInt64Value);
+  rpc Open(bot_OpenRequest) returns (google.protobuf.Int32Value);
+  rpc OpenParent(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc Close(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc RefreshContainer(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc Attack(bot_AttackRequest) returns (google.protobuf.Empty);
+  rpc CancelAttack(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Follow(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc CancelAttackAndFollow(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Talk(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc TalkChannel(bot_TalkChannelRequest) returns (google.protobuf.Empty);
+  rpc TalkPrivate(bot_TalkPrivateRequest) returns (google.protobuf.Empty);
+  rpc OpenPrivateChannel(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc GetChaseMode(google.protobuf.Empty) returns (google.protobuf.Int32Value);
+  rpc GetFightMode(google.protobuf.Empty) returns (google.protobuf.Int32Value);
+  rpc SetChaseMode(google.protobuf.Int32Value) returns (google.protobuf.Empty);
+  rpc SetFightMode(google.protobuf.Int32Value) returns (google.protobuf.Empty);
+  rpc BuyItem(bot_BuyItemRequest) returns (google.protobuf.Empty);
+  rpc SellItem(bot_SellItemRequest) returns (google.protobuf.Empty);
+  rpc EquipItem(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc EquipItemId(bot_EquipItemIdRequest) returns (google.protobuf.Empty);
+  rpc Mount(google.protobuf.BoolValue) returns (google.protobuf.Empty);
+  rpc ChangeMapAwareRange(bot_ChangeMapAwareRangeRequest) returns (google.protobuf.Empty);
+  rpc CanPerformGameAction(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+  rpc IsOnline(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+  rpc IsAttacking(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+  rpc IsFollowing(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+  rpc GetContainer(google.protobuf.Int32Value) returns (google.protobuf.UInt64Value);
+  rpc GetContainers(google.protobuf.Empty) returns (bot_Uint64List);
+  rpc GetAttackingCreature(google.protobuf.Empty) returns (google.protobuf.UInt64Value);
+  rpc GetFollowingCreature(google.protobuf.Empty) returns (google.protobuf.UInt64Value);
+  rpc GetLocalPlayer(google.protobuf.Empty) returns (google.protobuf.UInt64Value);
+  rpc GetClientVersion(google.protobuf.Empty) returns (google.protobuf.Int32Value);
+  rpc GetCharacterName(google.protobuf.Empty) returns (google.protobuf.StringValue);
+
+  // --- Item.h ---
+  rpc GetCount(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc GetSubType(google.protobuf.UInt64Value) returns (google.protobuf.Int32Value);
+  rpc GetItemId(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetTooltip(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+  rpc GetDurationTime(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetItemName(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+  rpc GetDescription(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+  rpc GetTier(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetText(google.protobuf.UInt64Value) returns (google.protobuf.StringValue);
+
+  // --- LocalPlayer.h ---
+  rpc GetStates(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetHealth(google.protobuf.UInt64Value) returns (google.protobuf.DoubleValue);
+  rpc GetMaxHealth(google.protobuf.UInt64Value) returns (google.protobuf.DoubleValue);
+  rpc GetFreeCapacity(google.protobuf.UInt64Value) returns (google.protobuf.DoubleValue);
+  rpc GetLevel(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetMana(google.protobuf.UInt64Value) returns (google.protobuf.DoubleValue);
+  rpc GetMaxMana(google.protobuf.UInt64Value) returns (google.protobuf.DoubleValue);
+  rpc GetManaShield(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetSoul(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetStamina(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetInventoryItem(bot_GetInventoryItemRequest) returns (google.protobuf.UInt64Value);
+  rpc HasEquippedItemId(bot_HasEquippedItemIdRequest) returns (google.protobuf.BoolValue);
+  rpc GetInventoryCount(bot_GetInventoryCountRequest) returns (google.protobuf.UInt32Value);
+  rpc HasSight(bot_HasSightRequest) returns (google.protobuf.BoolValue);
+  rpc IsAutoWalking(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc StopAutoWalk(google.protobuf.UInt64Value) returns (google.protobuf.Empty);
+  rpc AutoWalk(bot_AutoWalkRequest) returns (google.protobuf.BoolValue);
+  rpc SetLightHack(bot_SetLightHackRequest) returns (google.protobuf.Empty);
+
+  // --- Map.h ---
+  rpc GetTile(bot_Position) returns (google.protobuf.UInt64Value);
+  rpc GetSpectators(bot_GetSpectatorsRequest) returns (bot_Uint64List);
+  rpc FindPath(bot_FindPathRequest) returns (bot_DirectionList);
+  rpc IsSightClear(bot_IsSightClearRequest) returns (google.protobuf.BoolValue);
+
+  // --- Thing.h ---
+  rpc GetId(google.protobuf.UInt64Value) returns (google.protobuf.UInt32Value);
+  rpc GetPosition(google.protobuf.UInt64Value) returns (bot_Position);
+  rpc GetParentContainer(google.protobuf.UInt64Value) returns (google.protobuf.UInt64Value);
+  rpc IsItem(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsMonster(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsNpc(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsCreature(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsPlayer(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsLocalPlayer(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsContainer(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsUsable(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+  rpc IsLyingCorpse(google.protobuf.UInt64Value) returns (google.protobuf.BoolValue);
+
+  // --- Tile.h ---
+  rpc GetTopThing(google.protobuf.UInt64Value) returns (google.protobuf.UInt64Value);
+  rpc GetTopUseThing(google.protobuf.UInt64Value) returns (google.protobuf.UInt64Value);
+  rpc GetTileItems(google.protobuf.UInt64Value) returns (bot_Uint64List);
+  rpc IsWalkable(bot_IsWalkableRequest) returns (google.protobuf.BoolValue);
+
+  // --- CustomFunctions.h ---
+  rpc GetMessages(google.protobuf.UInt32Value) returns (bot_GetMessages);
+  rpc ClearMessages(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc DropMessages(google.protobuf.UInt32Value) returns (google.protobuf.Empty);
+
+}
+
+// --- Generated Messages ---
+
+message bot_Message {
+  string name = 1;
+  uint32 level = 2;
+  uint32 mode = 3;
+  string text = 4;
+  uint32 channel_id = 5;
+  bot_Position pos = 6;
+}
+
+message bot_GetMessages {
+  repeated bot_Message messages = 1;
+}
+
+message bot_GetItemRequest {
+  uint64 container = 1;
+  uint32 slot = 2;
+}
+
+message bot_GetSlotPositionRequest {
+  uint64 container = 1;
+  int32 slot = 2;
+}
+
+message bot_WalkRequest {
+  int32 direction = 1;
+}
+
+message bot_CanShootRequest {
+  uint64 creature = 1;
+  int32 distance = 2;
+}
+
+message bot_AutoWalkGameRequest {
+  bot_DirectionList direction = 1;
+  bot_Position startPos = 2;
+}
+
+message bot_AutoWalkRequest {
+  uint64 localPlayer = 1;
+  bot_Position destination = 2;
+  bool retry = 3;
+}
+
+message bot_SetLightHackRequest {
+  uint64 localPlayer = 1;
+  uint32 lightLevel = 2;
+}
+
+message bot_LookRequest {
+  uint64 thing = 1;
+  bool isBattleList = 2;
+}
+
+message bot_MoveRequest {
+  uint64 thing = 1;
+  bot_Position toPos = 2;
+  int32 count = 3;
+}
+
+message bot_MoveToParentContainerRequest {
+  uint64 thing = 1;
+  int32 count = 2;
+}
+
+message bot_UseWithRequest {
+  uint64 item = 1;
+  uint64 toThing = 2;
+}
+
+message bot_UseInventoryItemWithRequest {
+  uint32 itemId = 1;
+  uint64 toThing = 2;
+}
+
+message bot_FindItemInContainersRequest {
+  uint32 itemId = 1;
+  int32 subType = 2;
+  int32 tier = 3;
+}
+
+message bot_OpenRequest {
+  uint64 item = 1;
+  uint64 previousContainer = 2;
+}
+
+message bot_AttackRequest {
+  uint64 creature = 1;
+  bool cancel = 2;
+}
+
+message bot_TalkChannelRequest {
+  int32 mode = 1;
+  uint32 channelId = 2;
+  string message = 3;
+}
+
+message bot_TalkPrivateRequest {
+  int32 msgMode = 1;
+  string receiver = 2;
+  string message = 3;
+}
+
+message bot_BuyItemRequest {
+  uint64 item = 1;
+  uint32 amount = 2;
+  bool ignoreCapacity = 3;
+  bool buyWithBackpack = 4;
+}
+
+message bot_SellItemRequest {
+  uint64 item = 1;
+  uint32 amount = 2;
+  bool ignoreEquipped = 3;
+}
+
+message bot_EquipItemIdRequest {
+  uint32 itemId = 1;
+  int32 tier = 2;
+}
+
+message bot_ChangeMapAwareRangeRequest {
+  uint32 xrange = 1;
+  uint32 yrange = 2;
+}
+
+message bot_GetInventoryItemRequest {
+  uint64 localPlayer = 1;
+  int32 inventorySlot = 2;
+}
+
+message bot_HasEquippedItemIdRequest {
+  uint64 localPlayer = 1;
+  uint32 itemId = 2;
+  int32 tier = 3;
+}
+
+message bot_GetInventoryCountRequest {
+  uint64 localPlayer = 1;
+  uint32 itemId = 2;
+  int32 tier = 3;
+}
+
+message bot_HasSightRequest {
+  uint64 localPlayer = 1;
+  bot_Position pos = 2;
+}
+
+message bot_GetSpectatorsRequest {
+  bot_Position centerPos = 1;
+  bool multiFloor = 2;
+}
+
+message bot_FindPathRequest {
+  bot_Position startPos = 1;
+  bot_Position goalPos = 2;
+  int32 maxComplexity = 3;
+  int32 flags = 4;
+}
+
+message bot_IsWalkableRequest {
+  uint64 tile = 1;
+  bool ignoreCreatures = 2;
+}
+
+message bot_IsSightClearRequest {
+  bot_Position fromPos = 1;
+  bot_Position toPos = 2;
+}
+
+message bot_Uint64List {
+  repeated uint64 items = 1;
+}
+message bot_DirectionList {
+  repeated bot_Direction dirs = 1;
+}
+
+message bot_Position {
+  uint32 x = 1;
+  uint32 y = 2;
+  uint32 z = 3;
+}
+
+// Enums from const.h
+enum bot_MessageMode {
+  MessageNone                    = 0;
+  MessageSay                     = 1;
+  MessageWhisper                 = 2;
+  MessageYell                    = 3;
+  MessagePrivateFrom             = 4;
+  MessagePrivateTo               = 5;
+  MessageChannelManagement       = 6;
+  MessageChannel                 = 7;
+  MessageChannelHighlight        = 8;
+  MessageSpell                   = 9;
+  MessageNpcFrom                 = 10;
+  MessageNpcTo                   = 11;
+  MessageGamemasterBroadcast     = 12;
+  MessageGamemasterChannel       = 13;
+  MessageGamemasterPrivateFrom   = 14;
+  MessageGamemasterPrivateTo     = 15;
+  MessageLogin                   = 16;
+  MessageWarning                 = 17;
+  MessageGame                    = 18;
+  MessageFailure                 = 19;
+  MessageLook                    = 20;
+  MessageDamageDealed            = 21;
+  MessageDamageReceived          = 22;
+  MessageHeal                    = 23;
+  MessageExp                     = 24;
+  MessageDamageOthers            = 25;
+  MessageHealOthers              = 26;
+  MessageExpOthers               = 27;
+  MessageStatus                  = 28;
+  MessageLoot                    = 29;
+  MessageTradeNpc                = 30;
+  MessageGuild                   = 31;
+  MessagePartyManagement         = 32;
+  MessageParty                   = 33;
+  MessageBarkLow                 = 34;
+  MessageBarkLoud                = 35;
+  MessageReport                  = 36;
+  MessageHotkeyUse               = 37;
+  MessageTutorialHint            = 38;
+  MessageThankyou                = 39;
+  MessageMarket                  = 40;
+  MessageMana                    = 41;
+  MessageBeyondLast              = 42;
+
+  // deprecated
+  MessageMonsterYell             = 43;
+  MessageMonsterSay              = 44;
+  MessageRed                     = 45;
+  MessageBlue                    = 46;
+  MessageRVRChannel              = 47;
+  MessageRVRAnswer               = 48;
+  MessageRVRContinue             = 49;
+  MessageGameHighlight           = 50;
+  MessageNpcFromStartBlock       = 51;
+  LastMessage                    = 52;
+  MessageInvalid                 = 255;
+};
+
+enum bot_InventorySlot {
+  InventorySlot_UNSPECIFIED = 0;
+  InventorySlotHead = 1;
+  InventorySlotNecklace = 2;
+  InventorySlotBackpack = 3;
+  InventorySlotArmor = 4;
+  InventorySlotRight = 5;
+  InventorySlotLeft = 6;
+  InventorySlotLegs = 7;
+  InventorySlotFeet = 8;
+  InventorySlotRing = 9;
+  InventorySlotAmmo = 10;
+  InventorySlotPurse = 11;
+  InventorySlotExt1 = 12;
+  InventorySlotExt2 = 13;
+  InventorySlotExt3 = 14;
+  InventorySlotExt4 = 15;
+  LastInventorySlot = 16;
+};
+
+enum bot_Statistic {
+  Health = 0;
+  MaxHealth = 1;
+  FreeCapacity = 2;
+  Experience = 3;
+  Level = 4;
+  LevelPercent = 5;
+  Mana = 6;
+  MaxMana = 7;
+  MagicLevel = 8;
+  MagicLevelPercent = 9;
+  Soul = 10;
+  Stamina = 11;
+  LastStatistic = 12;
+};
+
+enum bot_Skill {
+  Fist = 0;
+  Club = 1;
+  Sword = 2;
+  Axe = 3;
+  Distance = 4;
+  Shielding = 5;
+  Fishing = 6;
+  CriticalChance = 7;
+  CriticalDamage = 8;
+  LifeLeechChance = 9;
+  LifeLeechAmount = 10;
+  ManaLeechChance = 11;
+  ManaLeechAmount = 12;
+  LastSkill = 13;
+};
+
+enum bot_Direction {
+  North = 0;
+  East = 1;
+  South = 2;
+  West = 3;
+  NorthEast = 4;
+  SouthEast = 5;
+  SouthWest = 6;
+  NorthWest = 7;
+  InvalidDirection = 8;
+};
+
+enum bot_FightModes {
+  Fight_UNSPECIFIED = 0;
+  FightOffensive = 1;
+  FightBalanced = 2;
+  FightDefensive = 3;
+};
+
+enum bot_ChaseModes {
+  DontChase = 0;
+  ChaseOpponent = 1;
+};
+
+enum bot_PVPModes {
+  WhiteDove = 0;
+  WhiteHand = 1;
+  YellowHand = 2;
+  RedFist = 3;
+};
+
+enum bot_PlayerSkulls {
+  SkullNone = 0;
+  SkullYellow = 1;
+  SkullGreen = 2;
+  SkullWhite = 3;
+  SkullRed = 4;
+  SkullBlack = 5;
+  SkullOrange = 6;
+};
+
+enum bot_PlayerStates {
+  IconNone = 0;
+  IconPoison = 1;
+  IconBurn = 2;
+  IconEnergy = 4;
+  IconDrunk = 8;
+  IconManaShield = 16;
+  IconParalyze = 32;
+  IconHaste = 64;
+  IconSwords = 128;
+  IconDrowning = 256;
+  IconFreezing = 512;
+  IconDazzled = 1024;
+  IconCursed = 2048;
+  IconPartyBuff = 4096;
+  IconPzBlock = 8192;
+  IconPz = 16384;
+  IconBleeding = 32768;
+  IconHungry = 65536;
+};
+
+enum bot_PathFindResult {
+  PathFindResultOk = 0;
+  PathFindResultSamePosition = 1;
+  PathFindResultImpossible = 2;
+  PathFindResultTooFar = 3;
+  PathFindResultNoWay = 4;
+};
+
+enum bot_PathFindFlags {
+  PathFind_UNSPECIFIED = 0;
+  PathFindAllowNotSeenTiles = 1;
+  PathFindAllowCreatures = 2;
+  PathFindAllowNonPathable = 4;
+  PathFindAllowNonWalkable = 8;
+  PathFindIgnoreCreatures = 16;
+};
