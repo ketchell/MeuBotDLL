@@ -281,6 +281,32 @@ static void AssignByCallerCount(uintptr_t* funcs,
 }
 
 // ============================================================================
+// ExtractLuaStateGlobal
+//
+// Scans the first 64 bytes of bindSingletonFunction for:
+//   68 EE D8 FF FF     push LUA_REGISTRYINDEX (-10002)
+//   FF 35 XX XX XX XX  push dword [imm32]
+// Returns the imm32 (address of the global lua_State* variable), or 0.
+// No C++ objects — __try is valid.
+// ============================================================================
+
+uintptr_t ExtractLuaStateGlobal(uintptr_t bindSingletonFunc) {
+    if (!bindSingletonFunc) return 0;
+    __try {
+        const unsigned char* p = reinterpret_cast<const unsigned char*>(bindSingletonFunc);
+        for (int i = 0; i < 60; i++) {
+            // 68 EE D8 FF FF  FF 35  XX XX XX XX
+            if (p[i]   == 0x68 && p[i+1] == 0xEE && p[i+2] == 0xD8 &&
+                p[i+3] == 0xFF && p[i+4] == 0xFF &&
+                p[i+5] == 0xFF && p[i+6] == 0x35) {
+                return *reinterpret_cast<const uintptr_t*>(p + i + 7);
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return 0;
+}
+
+// ============================================================================
 // AutoFindHookTargets  — public entry point
 // ============================================================================
 

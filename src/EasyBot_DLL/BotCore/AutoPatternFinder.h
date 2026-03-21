@@ -27,3 +27,17 @@ struct AutoFinderResult {
 };
 
 AutoFinderResult AutoFindHookTargets();
+
+// ============================================================================
+// ExtractLuaStateGlobal
+//
+// Scans the first 64 bytes of bindSingletonFunction for the sequence:
+//   68 EE D8 FF FF  (push LUA_REGISTRYINDEX)
+//   FF 35 XX XX XX XX  (push [imm32])
+// and returns the imm32 — the address of the global lua_State* variable.
+// Dereference the returned address to get the live lua_State*.
+//
+// Returns 0 if the pattern is not found.
+// ============================================================================
+
+uintptr_t ExtractLuaStateGlobal(uintptr_t bindSingletonFunc);

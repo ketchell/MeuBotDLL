@@ -40,6 +40,30 @@ void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_
     original_bindSingletonFunction(a1, a2, a3);
 }
 
+// cdecl variant — used when the target has no EBP frame (first byte != 0x55).
+// Same capture logic as the stdcall version; caller cleans the stack.
+void __cdecl hooked_bindSingletonFunction_cdecl(uintptr_t a1, uintptr_t a2, uintptr_t a3) {
+    CONTEXT ctx;
+    RtlCaptureContext(&ctx);
+    uintptr_t ebp = ctx.Ebp;
+
+    auto global = *reinterpret_cast<std::string*>(a1);
+    auto field  = *reinterpret_cast<std::string*>(a2);
+
+    uintptr_t tmp, second_tmp;
+    if (global[1] != '_') {
+        tmp = tryReadPtr(ebp + classFunctionOffset);
+        if (tmp) ClassMemberFunctions[global + "." + field] = tmp;
+    } else {
+        tmp        = tryReadPtr(ebp + singletonFunctionOffset);
+        second_tmp = tryReadPtr(ebp + singletonFunctionOffset + 0x04);
+        if (tmp) SingletonFunctions[global + "." + field] = {tmp, second_tmp};
+    }
+
+    typedef void(__cdecl* orig_t)(uintptr_t, uintptr_t, uintptr_t);
+    reinterpret_cast<orig_t>(original_bindSingletonFunction)(a1, a2, a3);
+}
+
 void __stdcall hooked_callLuaField(uintptr_t* a1) {
     original_callLuaField(a1);
 }
@@ -79,6 +103,38 @@ void __stdcall hooked_callGlobalField(uintptr_t **a1, uintptr_t **a2) {
         }
     }
     original_callGlobalField(a1, a2);
+}
+#pragma optimize( "", on )
+
+// cdecl variant — same logic, caller cleans the stack.
+#pragma optimize( "", off )
+void __cdecl hooked_callGlobalField_cdecl(uintptr_t **a1, uintptr_t **a2) {
+    CONTEXT ctx;
+    RtlCaptureContext(&ctx);
+    uintptr_t ebp = ctx.Ebp;
+    auto global = *reinterpret_cast<std::string*>(a1);
+    auto field  = *reinterpret_cast<std::string*>(a2);
+    if (global == "g_game") {
+        if (field == "onTextMessage") {
+            uintptr_t onTextMessage_address = ebp + onTextMessageOffset;
+            auto ptr_messageText = g_custom->getMessagePtr(onTextMessage_address);
+            auto message_address = reinterpret_cast<std::string*>(ptr_messageText);
+            if (message_address->find("You see") != std::string::npos)
+                *message_address = "ID: " + std::to_string(itemId) + "\n" + *reinterpret_cast<std::string*>(ptr_messageText);
+        } else if (field == "onTalk") {
+            auto args = reinterpret_cast<StackArgs*>(ebp + onTalkOffset);
+            g_custom->onTalk(
+                *args->name,
+                reinterpret_cast<uint16_t>(args->level),
+                *args->mode,
+                *args->text,
+                *args->channelId,
+                *args->pos
+            );
+        }
+    }
+    typedef void(__cdecl* orig_t)(uintptr_t**, uintptr_t**);
+    reinterpret_cast<orig_t>(original_callGlobalField)(a1, a2);
 }
 #pragma optimize( "", on )
 

@@ -13,27 +13,12 @@ LocalPlayer* LocalPlayer::getInstance()
 }
 
 Otc::PlayerStates LocalPlayer::getStates(LocalPlayerPtr localPlayer) {
-    if (!localPlayer) {
-        FILE* f = fopen("C:\\easybot_lp_debug.log", "a");
-        if (f) { fprintf(f, "getStates: localPlayer is NULL\n"); fclose(f); }
-        return Otc::IconNone;
-    }
+    if (!localPlayer) return Otc::IconNone;
     typedef Otc::PlayerStates(gameCall* GetStates)(uintptr_t RCX);
     auto function = reinterpret_cast<GetStates>(ClassMemberFunctions["LocalPlayer.getStates"]);
-    {
-        FILE* f = fopen("C:\\easybot_lp_debug.log", "a");
-        if (f) { fprintf(f, "getStates: lp=0x%08X fn=0x%08X\n", (unsigned)localPlayer, (unsigned)(uintptr_t)function); fclose(f); }
-    }
-    if (!function) {
-        FILE* f = fopen("C:\\easybot_lp_debug.log", "a");
-        if (f) { fprintf(f, "getStates: fn is NULL!\n"); fclose(f); }
-        return Otc::IconNone;
-    }
+    if (!function) return Otc::IconNone;
     return g_dispatcher->scheduleEventEx([function, localPlayer]() {
-        auto result = function(localPlayer);
-        FILE* f = fopen("C:\\easybot_lp_debug.log", "a");
-        if (f) { fprintf(f, "getStates RESULT: %d\n", (int)result); fclose(f); }
-        return result;
+        return function(localPlayer);
     });
 }
 

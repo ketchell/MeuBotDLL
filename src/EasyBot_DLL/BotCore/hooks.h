@@ -21,9 +21,13 @@ typedef void(__stdcall* bindSingletonFunction_t)(uintptr_t, uintptr_t, uintptr_t
 inline bindSingletonFunction_t original_bindSingletonFunction = nullptr;
 void __stdcall hooked_bindSingletonFunction(uintptr_t, uintptr_t, uintptr_t);
 
+// cdecl variant — used when the target function has no EBP frame (first byte != 0x55).
+void __cdecl hooked_bindSingletonFunction_cdecl(uintptr_t, uintptr_t, uintptr_t);
+
 typedef void(__stdcall* callGlobalField_t)(uintptr_t**, uintptr_t**);
 inline callGlobalField_t original_callGlobalField = nullptr;
 void __stdcall hooked_callGlobalField(uintptr_t**, uintptr_t**);
+void __cdecl   hooked_callGlobalField_cdecl(uintptr_t**, uintptr_t**);
 
 typedef void(__stdcall* callLuaField_t)(uintptr_t*);
 inline callLuaField_t original_callLuaField = nullptr;

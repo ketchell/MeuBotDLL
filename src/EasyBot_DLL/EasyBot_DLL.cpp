@@ -9,8 +9,60 @@
 #include "Item.h"
 #include "AutoPatternFinder.h"
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 HMODULE g_hDll = NULL;
+
+// ============================================================================
+// Address cache — persists auto-finder results across runs.
+// Key: module base address (stable when ASLR is disabled).
+// Invalidated by: module size change or .text header checksum mismatch.
+// ============================================================================
+
+static uint32_t CalcChecksum(uintptr_t base, uintptr_t size) {
+    uint32_t sum = 0;
+    uint32_t n = (size > 4096) ? 4096 : static_cast<uint32_t>(size);
+    for (uint32_t i = 0; i < n; i++)
+        sum += *reinterpret_cast<const unsigned char*>(base + i);
+    return sum;
+}
+
+static bool ReadCache(uintptr_t moduleBase, uintptr_t moduleSize,
+                      uintptr_t* outBind, uintptr_t* outCall) {
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "C:\\easybot_cache_%08X.dat", (unsigned)moduleBase);
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    uint32_t buf[6] = {0};
+    bool ok = (fread(buf, sizeof(buf), 1, f) == 1);
+    fclose(f);
+    if (!ok) return false;
+    if (buf[0] != 0xEA5B0700u) return false;  // magic
+    if (buf[1] != (uint32_t)moduleBase) return false;
+    if (buf[2] != (uint32_t)moduleSize) return false;
+    if (buf[3] != CalcChecksum(moduleBase, moduleSize)) return false;
+    if (!buf[4]) return false;
+    *outBind = buf[4];
+    *outCall = buf[5];
+    return true;
+}
+
+static void WriteCache(uintptr_t moduleBase, uintptr_t moduleSize,
+                       uintptr_t bind, uintptr_t call) {
+    uint32_t buf[6];
+    buf[0] = 0xEA5B0700u;
+    buf[1] = (uint32_t)moduleBase;
+    buf[2] = (uint32_t)moduleSize;
+    buf[3] = CalcChecksum(moduleBase, moduleSize);
+    buf[4] = (uint32_t)bind;
+    buf[5] = (uint32_t)call;
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "C:\\easybot_cache_%08X.dat", (unsigned)moduleBase);
+    FILE* f = fopen(path, "wb");
+    if (f) { fwrite(buf, sizeof(buf), 1, f); fclose(f); }
+}
 
 // ============================================================================
 // Main DLL worker thread
@@ -31,8 +83,6 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         }
     }
 
-    // Step-by-step init log — every line written before each operation.
-    // If the DLL crashes, the last line in the file shows where it happened.
     FILE* f = fopen("C:\\easybot_init.log", "w");
     if (f) { fprintf(f, "EasyBot starting\n"); fclose(f); }
 
@@ -44,128 +94,152 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
     using clk = std::chrono::high_resolution_clock;
     using ms  = std::chrono::milliseconds;
 
-    // Helper: create a bindSingleton hook and log the target address.
-    auto hookBindSingleton = [&](uintptr_t addr) -> MH_STATUS {
+    // Returns true if the byte at addr indicates a standard EBP-frame prologue.
+    auto isStdcall = [](uintptr_t addr) -> bool {
+        return addr && (*reinterpret_cast<const unsigned char*>(addr) == 0x55);
+    };
+
+    // Hook bindSingletonFunction — picks stdcall or cdecl variant automatically.
+    auto hookBind = [&](uintptr_t addr) -> MH_STATUS {
         if (!addr) return MH_ERROR_NOT_EXECUTABLE;
-        char buf[56];
-        snprintf(buf, sizeof(buf), "  bindSingleton -> 0x%08X", (unsigned)addr);
+        bool stdcall_ = isStdcall(addr);
+        char buf[80];
+        snprintf(buf, sizeof(buf), "  bindSingleton -> 0x%08X  (%s)",
+            (unsigned)addr, stdcall_ ? "stdcall" : "cdecl");
         iLog(buf);
-        return MH_CreateHook(reinterpret_cast<LPVOID>(addr),
-            &hooked_bindSingletonFunction,
+        LPVOID fn = stdcall_
+            ? reinterpret_cast<LPVOID>(&hooked_bindSingletonFunction)
+            : reinterpret_cast<LPVOID>(&hooked_bindSingletonFunction_cdecl);
+        return MH_CreateHook(reinterpret_cast<LPVOID>(addr), fn,
             reinterpret_cast<LPVOID*>(&original_bindSingletonFunction));
     };
 
-    // ---- MinHook init ----
+    // Hook callGlobalField — picks stdcall or cdecl variant automatically.
+    auto hookCall = [&](uintptr_t addr) -> MH_STATUS {
+        if (!addr) return MH_ERROR_NOT_EXECUTABLE;
+        bool stdcall_ = isStdcall(addr);
+        char buf[80];
+        snprintf(buf, sizeof(buf), "  callGlobalField -> 0x%08X  (%s)",
+            (unsigned)addr, stdcall_ ? "stdcall" : "cdecl");
+        iLog(buf);
+        LPVOID fn = stdcall_
+            ? reinterpret_cast<LPVOID>(&hooked_callGlobalField)
+            : reinterpret_cast<LPVOID>(&hooked_callGlobalField_cdecl);
+        return MH_CreateHook(reinterpret_cast<LPVOID>(addr), fn,
+            reinterpret_cast<LPVOID*>(&original_callGlobalField));
+    };
+
+    // ---- Step 1: MH_Initialize + get module info ----
     auto t0 = clk::now();
     iLog("MH_Initialize...");
     MH_Initialize();
-    iLog("MH_Initialize done");
 
-    // ---- Step 1: FindPattern — fast (<1ms), gets hooks live ASAP ----
+    uintptr_t modBase = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
+    // Read SizeOfImage from the PE optional header.
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(modBase);
+    auto* nt  = reinterpret_cast<IMAGE_NT_HEADERS*>(modBase + dos->e_lfanew);
+    uintptr_t modSize = nt->OptionalHeader.SizeOfImage;
+
+    // ---- Step 2: FindPattern — fast (<1ms) ----
     iLog("FindPattern: all targets...");
-    uintptr_t bindSingleton_func   = FindPattern(bindSingletonFunction_x86_PATTERN, bindSingletonFunction_x86_MASK);
-    uintptr_t callGlobalField_func = FindPattern(callGlobalField_PATTERN, callGlobalField_MASK);
-    uintptr_t mainLoop_func        = FindPattern(mainLoop_x86_PATTERN, mainLoop_x86_MASK);
+    uintptr_t bind_func = FindPattern(bindSingletonFunction_x86_PATTERN, bindSingletonFunction_x86_MASK);
+    uintptr_t call_func = FindPattern(callGlobalField_PATTERN,            callGlobalField_MASK);
+    uintptr_t main_func = FindPattern(mainLoop_x86_PATTERN,               mainLoop_x86_MASK);
     auto t1 = clk::now();
 
     {
         char buf[192];
         snprintf(buf, sizeof(buf),
-            "FindPattern: bindSingleton=0x%08X  callGlobalField=0x%08X  mainLoop=0x%08X",
-            (unsigned)bindSingleton_func, (unsigned)callGlobalField_func, (unsigned)mainLoop_func);
+            "FindPattern: bind=0x%08X  call=0x%08X  main=0x%08X  (%lldms)",
+            (unsigned)bind_func, (unsigned)call_func, (unsigned)main_func,
+            (long long)std::chrono::duration_cast<ms>(t1 - t0).count());
         iLog(buf);
     }
 
-    // mainLoop has no auto-finder fallback — abort now if missing.
-    if (!mainLoop_func) {
-        iLog("FATAL: mainLoop pattern=0 — aborting to preserve client");
+    if (!main_func) {
+        iLog("FATAL: mainLoop pattern not found — aborting");
         return 0;
     }
 
-    // ---- Step 2: Install hooks for whatever FindPattern found ----
+    // ---- Step 3: Cache / auto-finder if FindPattern missed bind or call ----
+    if (!bind_func || !call_func) {
+        uintptr_t cacheBind = 0, cacheCall = 0;
+        if (ReadCache(modBase, modSize, &cacheBind, &cacheCall)) {
+            if (!bind_func) bind_func = cacheBind;
+            if (!call_func) call_func = cacheCall;
+            char buf[128];
+            snprintf(buf, sizeof(buf),
+                "Cache hit — bind=0x%08X  call=0x%08X",
+                (unsigned)bind_func, (unsigned)call_func);
+            iLog(buf);
+        } else {
+            iLog("Cache miss — running AutoFindHookTargets (slow path, first run)...");
+            AutoFinderResult ar = AutoFindHookTargets();
+            auto t2 = clk::now();
+            {
+                char buf[128];
+                snprintf(buf, sizeof(buf),
+                    "AutoFind: %lldms  success=%d  bind=0x%08X  call=0x%08X",
+                    (long long)std::chrono::duration_cast<ms>(t2 - t1).count(),
+                    (int)ar.success,
+                    (unsigned)ar.bindSingletonFunction,
+                    (unsigned)ar.callGlobalField);
+                iLog(buf);
+            }
+            if (ar.bindSingletonFunction || ar.callGlobalField)
+                WriteCache(modBase, modSize, ar.bindSingletonFunction, ar.callGlobalField);
+
+            if (!bind_func && ar.bindSingletonFunction) bind_func = ar.bindSingletonFunction;
+            if (!call_func && ar.callGlobalField)       call_func = ar.callGlobalField;
+        }
+    }
+
+    // ---- Step 4: Install hooks with convention detection ----
     iLog("MH_CreateHook...");
-    MH_STATUS r1 = hookBindSingleton(bindSingleton_func);
+    hookBind(bind_func);
 
-    MH_STATUS r2 = MH_ERROR_NOT_EXECUTABLE;
-    if (callGlobalField_func)
-        r2 = MH_CreateHook(reinterpret_cast<LPVOID>(callGlobalField_func),
-            &hooked_callGlobalField,
-            reinterpret_cast<LPVOID*>(&original_callGlobalField));
+    // callGlobalField handles onTextMessage/onTalk — nice-to-have, not critical.
+    // Skip it on cdecl servers to avoid stack corruption and Lua errors.
+    if (call_func) {
+        if (isStdcall(call_func)) {
+            hookCall(call_func);
+        } else {
+            char buf[80];
+            snprintf(buf, sizeof(buf),
+                "callGlobalField 0x%08X is cdecl — hook skipped to avoid crash",
+                (unsigned)call_func);
+            iLog(buf);
+        }
+    }
 
-    MH_STATUS r3 = MH_CreateHook(reinterpret_cast<LPVOID>(mainLoop_func),
-        &hooked_MainLoop,
+    MH_STATUS r = MH_CreateHook(reinterpret_cast<LPVOID>(main_func),
+        reinterpret_cast<LPVOID>(&hooked_MainLoop),
         reinterpret_cast<LPVOID*>(&original_mainLoop));
-
-    if (r3 != MH_OK) {
+    if (r != MH_OK) {
         iLog("FATAL: mainLoop MH_CreateHook failed — aborting");
         return 0;
     }
-    auto t2 = clk::now();
 
-    // ---- Step 3: Enable immediately — binding window is open now ----
+    // ---- Step 5: Enable all hooks at once ----
     iLog("MH_EnableHook(MH_ALL_HOOKS)...");
     MH_EnableHook(MH_ALL_HOOKS);
     auto t3 = clk::now();
 
     {
-        char buf[256];
-        snprintf(buf, sizeof(buf),
-            "Timing: MH_Init+FindPattern=%lldms  CreateHook=%lldms  EnableHook=%lldms  total_to_live=%lldms",
-            (long long)std::chrono::duration_cast<ms>(t1 - t0).count(),
-            (long long)std::chrono::duration_cast<ms>(t2 - t1).count(),
-            (long long)std::chrono::duration_cast<ms>(t3 - t2).count(),
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Hooks live — total init time: %lldms",
             (long long)std::chrono::duration_cast<ms>(t3 - t0).count());
         iLog(buf);
     }
 
-    // ---- Step 4: Auto-finder for anything FindPattern missed ----
-    // Runs after hooks are live — won't delay the binding window.
-    // Note: auto-finder sees MinHook E9 detours on already-hooked functions,
-    // which is fine since SSO-tail and LuaRegPush patterns are at offset >5.
-    if (!bindSingleton_func || !callGlobalField_func) {
-        iLog("FindPattern missed targets — running AutoFindHookTargets...");
-        AutoFinderResult autoResult = AutoFindHookTargets();
-        auto t4 = clk::now();
-        {
-            char buf[128];
-            snprintf(buf, sizeof(buf), "AutoFind took %lldms  success=%d",
-                (long long)std::chrono::duration_cast<ms>(t4 - t3).count(),
-                (int)autoResult.success);
-            iLog(buf);
-        }
-
-        if (!bindSingleton_func && autoResult.bindSingletonFunction) {
-            bindSingleton_func = autoResult.bindSingletonFunction;
-            MH_STATUS ra = hookBindSingleton(bindSingleton_func);
-            MH_EnableHook(reinterpret_cast<LPVOID>(bindSingleton_func));
-            char buf[80];
-            snprintf(buf, sizeof(buf), "  auto bindSingleton hook: MH=%d", (int)ra);
-            iLog(buf);
-        }
-
-        if (!callGlobalField_func && autoResult.callGlobalField) {
-            callGlobalField_func = autoResult.callGlobalField;
-            MH_STATUS ra = MH_CreateHook(reinterpret_cast<LPVOID>(callGlobalField_func),
-                &hooked_callGlobalField,
-                reinterpret_cast<LPVOID*>(&original_callGlobalField));
-            MH_EnableHook(reinterpret_cast<LPVOID>(callGlobalField_func));
-            char buf[80];
-            snprintf(buf, sizeof(buf), "  auto callGlobalField hook: MH=%d", (int)ra);
-            iLog(buf);
-        }
-    }
-
-    iLog("Hooks live — waiting for hooked_bindSingletonFunction to fire...");
-
-    // ---- Wait for g_game.look to be populated by hooked_bindSingletonFunction ----
-    // The game registers its Lua bindings at startup; once the hook captures
-    // g_game.look we know the full binding pass has run.
+    // ---- Step 6: Wait for bindings ----
+    iLog("Waiting for g_game.look...");
     int waitCount = 0;
     while (!SingletonFunctions["g_game.look"].first) {
         Sleep(10);
         ++waitCount;
-        if (waitCount > 3000) { // 30-second timeout
-            iLog("TIMEOUT: g_game.look not captured after 30 s — binding hook may have missed the registration window");
+        if (waitCount > 3000) {
+            iLog("TIMEOUT: g_game.look not captured after 30s");
             break;
         }
     }
@@ -173,7 +247,7 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
     {
         char buf[192];
         snprintf(buf, sizeof(buf),
-            "Wait done: g_game.look=0x%08X  waited=%d ms  SingletonFunctions=%d  ClassMemberFunctions=%d",
+            "Wait done: g_game.look=0x%08X  waited=%dms  Singletons=%d  ClassMembers=%d",
             (unsigned)SingletonFunctions["g_game.look"].first,
             waitCount * 10,
             (int)SingletonFunctions.size(),
@@ -181,17 +255,14 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         iLog(buf);
     }
 
-    // ---- Install the look hook ----
+    // ---- Step 7: Install look hook ----
     if (SingletonFunctions["g_game.look"].first) {
-        iLog("Installing look hook...");
-        MH_STATUS rLook = MH_CreateHook(
+        MH_CreateHook(
             reinterpret_cast<LPVOID>(SingletonFunctions["g_game.look"].first),
-            &hooked_Look,
+            reinterpret_cast<LPVOID>(&hooked_Look),
             reinterpret_cast<LPVOID*>(&look_original));
         MH_EnableHook(reinterpret_cast<LPVOID>(SingletonFunctions["g_game.look"].first));
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Look hook installed (MH=%d)", (int)rLook);
-        iLog(buf);
+        iLog("Look hook installed");
     } else {
         iLog("g_game.look not found — look hook skipped");
     }
