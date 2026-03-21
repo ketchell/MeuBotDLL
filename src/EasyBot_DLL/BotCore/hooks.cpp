@@ -5,6 +5,18 @@
 #include "pattern_scan.h"
 
 // ============================================================================
+// SEH-protected pointer read — prevents a bad EBP offset from crashing the
+// client.  Returns 0 on access fault.
+// No C++ objects — __try is valid.
+// ============================================================================
+static uintptr_t tryReadPtr(uintptr_t addr) {
+    __try {
+        return *reinterpret_cast<const uintptr_t*>(addr);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return 0;
+}
+
+// ============================================================================
 // hooked_bindSingletonFunction
 // ============================================================================
 void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_t a3) {
@@ -17,12 +29,12 @@ void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_
 
     uintptr_t tmp, second_tmp;
     if (global[1] != '_') {
-        tmp = *reinterpret_cast<uintptr_t*>(ebp + classFunctionOffset);
-        ClassMemberFunctions[global + "." + field] = tmp;
+        tmp = tryReadPtr(ebp + classFunctionOffset);
+        if (tmp) ClassMemberFunctions[global + "." + field] = tmp;
     } else {
-        tmp        = *reinterpret_cast<uintptr_t*>(ebp + singletonFunctionOffset);
-        second_tmp = *reinterpret_cast<uintptr_t*>(ebp + singletonFunctionOffset + 0x04);
-        SingletonFunctions[global + "." + field] = {tmp, second_tmp};
+        tmp        = tryReadPtr(ebp + singletonFunctionOffset);
+        second_tmp = tryReadPtr(ebp + singletonFunctionOffset + 0x04);
+        if (tmp) SingletonFunctions[global + "." + field] = {tmp, second_tmp};
     }
 
     original_bindSingletonFunction(a1, a2, a3);
