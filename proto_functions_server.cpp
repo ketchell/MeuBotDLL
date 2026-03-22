@@ -11,6 +11,7 @@
 #include "Creature.h"
 #include "CustomFunctions.h"
 #include "Item.h"
+#include "hooks.h"
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -20,9 +21,11 @@ SmartPtr<T> toPtr(uint64_t val) {
     return SmartPtr<T>(val);
 }
 
-extern std::atomic<bool> g_ready;
 static grpc::Status notReady() {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Bot not ready");
+}
+static grpc::Status notLuaWrapper() {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Not supported on Lua wrapper servers");
 }
 
 Position toPos(const bot::bot_Position& proto) {
@@ -41,103 +44,123 @@ void fromPos(const Position& pos, bot::bot_Position* proto) {
 
 // ================= Container.h =================
 Status BotServiceImpl::GetItem(ServerContext* context, const bot::bot_GetItemRequest* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getItem(toPtr<Container>(request->container()), request->slot()));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetItems(ServerContext* context, const google::protobuf::UInt64Value* request, bot::bot_Uint64List* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     auto items = g_container->getItems(toPtr<Container>(request->value()));
     for (auto item : items) response->add_items(item);
     return Status::OK;
 }
 
 Status BotServiceImpl::GetItemsCount(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getItemsCount(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetCapacity(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getCapacity(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSlotPosition(ServerContext* context, const bot::bot_GetSlotPositionRequest* request, bot::bot_Position* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     fromPos(g_container->getSlotPosition(toPtr<Container>(request->container()), request->slot()), response);
     return Status::OK;
 }
 
 Status BotServiceImpl::GetContainerName(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getName(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetContainerId(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getId(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetContainerItem(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getContainerItem(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::HasParent(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->hasParent(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetFirstIndex(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_container->getFirstIndex(toPtr<Container>(request->value())));
     return Status::OK;
 }
 
 // ================= Creature.h =================
 Status BotServiceImpl::GetCreatureName(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->getName(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetManaPercent(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->getManaPercent(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetHealthPercent(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->getHealthPercent(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSkull(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_creature->getSkull(toPtr<Creature>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetDirection(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<int32_t>(g_creature->getDirection(toPtr<Creature>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsDead(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->isDead(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsWalking(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->isWalking(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::CanBeSeen(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->canBeSeen(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsCovered(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->isCovered(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::CanShoot(ServerContext* context, const bot::bot_CanShootRequest* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_creature->canShoot(toPtr<Creature>(request->creature()), request->distance()));
     return Status::OK;
 }
@@ -378,46 +401,55 @@ Status BotServiceImpl::GetCharacterName(ServerContext* context, const google::pr
 
 // ================= Item.h =================
 Status BotServiceImpl::GetCount(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getCount(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSubType(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getSubType(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetItemId(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getId(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetTooltip(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getTooltip(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetDurationTime(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getDurationTime(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetItemName(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getName(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetDescription(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getDescription(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetTier(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getTier(toPtr<Item>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetText(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::StringValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_item->getText(toPtr<Item>(request->value())));
     return Status::OK;
 }
@@ -426,195 +458,231 @@ Status BotServiceImpl::GetText(ServerContext* context, const google::protobuf::U
 
 Status BotServiceImpl::GetStates(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_localPlayer->getStates(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetHealth(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getHealth(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMaxHealth(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getMaxHealth(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetFreeCapacity(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getFreeCapacity(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetLevel(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_localPlayer->getLevel(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMana(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getMana(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMaxMana(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getMaxMana(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSoul(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_localPlayer->getSoul(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetStamina(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_localPlayer->getStamina(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetInventoryItem(ServerContext* context, const bot::bot_GetInventoryItemRequest* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getInventoryItem(toPtr<LocalPlayer>(request->localplayer()), static_cast<Otc::InventorySlot>(request->inventoryslot())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetInventoryCount(ServerContext* context, const bot::bot_GetInventoryCountRequest* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getInventoryCount(toPtr<LocalPlayer>(request->localplayer()), request->itemid(), request->tier()));
     return Status::OK;
 }
 
 Status BotServiceImpl::HasSight(ServerContext* context, const bot::bot_HasSightRequest* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->hasSight(toPtr<LocalPlayer>(request->localplayer()), toPos(request->pos())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsAutoWalking(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->isAutoWalking(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::StopAutoWalk(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Empty* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     g_localPlayer->stopAutoWalk(toPtr<LocalPlayer>(request->value()));
     return Status::OK;
 }
 
 Status BotServiceImpl::AutoWalk(ServerContext* context, const bot::bot_AutoWalkRequest* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->autoWalk(toPtr<LocalPlayer>(request->localplayer()), toPos(request->destination()), request->retry()));
     return Status::OK;
 }
 
 Status BotServiceImpl::SetLightHack(ServerContext* context, const bot::bot_SetLightHackRequest* request, google::protobuf::Empty* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     g_localPlayer->setLightHack(toPtr<LocalPlayer>(request->localplayer()), static_cast<uint16_t>(request->lightlevel()));
     return Status::OK;
 }
 
 // ================= Map.h =================
 Status BotServiceImpl::GetTile(ServerContext* context, const bot::bot_Position* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_map->getTile(toPos(*request)));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSpectators(ServerContext* context, const bot::bot_GetSpectatorsRequest* request, bot::bot_Uint64List* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     for (auto s : g_map->getSpectators(toPos(request->centerpos()), request->multifloor()))
         response->add_items(s);
     return Status::OK;
 }
 
 Status BotServiceImpl::FindPath(ServerContext* context, const bot::bot_FindPathRequest* request, bot::bot_DirectionList* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     for (auto dir : g_map->findPath(toPos(request->startpos()), toPos(request->goalpos()), request->maxcomplexity(), request->flags()))
         response->add_dirs(static_cast<bot::bot_Direction>(dir));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsSightClear(ServerContext* context, const bot::bot_IsSightClearRequest* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_map->isSightClear(toPos(request->frompos()), toPos(request->topos())));
     return Status::OK;
 }
 
 // ================= Thing.h =================
 Status BotServiceImpl::GetId(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->getId(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetPosition(ServerContext* context, const google::protobuf::UInt64Value* request, bot::bot_Position* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     fromPos(g_thing->getPosition(toPtr<Thing>(request->value())), response);
     return Status::OK;
 }
 
 Status BotServiceImpl::GetParentContainer(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->getParentContainer(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsItem(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isItem(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsMonster(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isMonster(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsNpc(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isNpc(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsCreature(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isCreature(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsPlayer(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isPlayer(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsLocalPlayer(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isLocalPlayer(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsContainer(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isContainer(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsUsable(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isUsable(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsLyingCorpse(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_thing->isLyingCorpse(toPtr<Thing>(request->value())));
     return Status::OK;
 }
 
 // ================= Tile.h =================
 Status BotServiceImpl::GetTopThing(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_tile->getTopThing(toPtr<Tile>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetTopUseThing(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt64Value* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_tile->getTopUseThing(toPtr<Tile>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetTileItems(ServerContext* context, const google::protobuf::UInt64Value* request, bot::bot_Uint64List* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     for (const auto& val : g_tile->getItems(toPtr<Tile>(request->value())))
         response->add_items(val);
     return Status::OK;
 }
 
 Status BotServiceImpl::IsWalkable(ServerContext* context, const bot::bot_IsWalkableRequest* request, google::protobuf::BoolValue* response) {
+    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_tile->isWalkable(toPtr<Tile>(request->tile()), request->ignorecreatures()));
     return Status::OK;
 }

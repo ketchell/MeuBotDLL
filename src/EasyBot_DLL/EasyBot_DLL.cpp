@@ -255,6 +255,46 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         iLog(buf);
     }
 
+    // ---- Step 6b: Detect Lua wrapper servers ----
+    bool isLuaWrapperServer = false;
+    {
+        uintptr_t hp = ClassMemberFunctions["LocalPlayer.getHealth"];
+        uintptr_t mp = ClassMemberFunctions["LocalPlayer.getMana"];
+        uintptr_t lv = ClassMemberFunctions["LocalPlayer.getLevel"];
+        uintptr_t mh = ClassMemberFunctions["LocalPlayer.getMaxHealth"];
+
+        int dupes = 0;
+        if (hp && hp == mp) dupes++;
+        if (hp && hp == lv) dupes++;
+        if (hp && hp == mh) dupes++;
+
+        isLuaWrapperServer = (dupes >= 2);
+
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "LuaWrapper detect: hp=0x%08X mp=0x%08X lv=0x%08X mh=0x%08X dupes=%d -> %s",
+            (unsigned)hp, (unsigned)mp, (unsigned)lv, (unsigned)mh, dupes,
+            isLuaWrapperServer ? "LUA WRAPPER SERVER" : "direct C++ server");
+        iLog(buf);
+    }
+
+    if (isLuaWrapperServer) {
+        uintptr_t isOnline = SingletonFunctions["g_game.isOnline"].first;
+        uintptr_t getLP    = SingletonFunctions["g_game.getLocalPlayer"].first;
+        uintptr_t walk     = SingletonFunctions["g_game.walk"].first;
+
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "Singleton check: isOnline=0x%08X getLP=0x%08X walk=0x%08X",
+            (unsigned)isOnline, (unsigned)getLP, (unsigned)walk);
+        iLog(buf);
+
+        bool singletonsUnique = (isOnline != getLP) && (isOnline != walk) && (getLP != walk);
+        iLog(singletonsUnique ? "Singletons are UNIQUE — function calls OK"
+                              : "Singletons are SHARED — also wrappers!");
+    }
+    g_isLuaWrapperServer = isLuaWrapperServer;
+
     // ---- Step 7: Install look hook (stdcall servers only) ----
     if (SingletonFunctions["g_game.look"].first) {
         uintptr_t lookAddr = SingletonFunctions["g_game.look"].first;

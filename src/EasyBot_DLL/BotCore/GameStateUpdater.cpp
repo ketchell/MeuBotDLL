@@ -19,6 +19,8 @@ static void dbgLog(const char* msg) {
 }
 
 void UpdateGameStateCache() {
+    if (g_isLuaWrapperServer) { g_cachedState.valid.store(false); return; }
+
     const bool doLog = (s_dbgCount < DBG_MAX);
 
     // ---- 1. Get LocalPlayer* via g_game.getLocalPlayer ----

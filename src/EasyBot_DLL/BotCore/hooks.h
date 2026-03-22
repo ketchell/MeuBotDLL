@@ -16,6 +16,7 @@ inline std::map<std::string, uintptr_t> ClassMemberFunctions;
 // Checked by the gRPC service to return UNAVAILABLE instead of calling
 // game functions through potentially-null function pointers.
 inline std::atomic<bool> g_ready{false};
+inline bool g_isLuaWrapperServer = false;
 
 typedef void(__stdcall* bindSingletonFunction_t)(uintptr_t, uintptr_t, uintptr_t);
 inline bindSingletonFunction_t original_bindSingletonFunction = nullptr;
