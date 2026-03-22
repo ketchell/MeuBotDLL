@@ -152,8 +152,9 @@ int hooked_MainLoop(int a1) {
 typedef uint32_t(gameCall* GetId)(uintptr_t RCX, void* RDX);
 
 void __stdcall hooked_Look(const uintptr_t& thing, const bool isBattleList) {
-    look_original(&thing, isBattleList);
+    if (look_original) look_original(&thing, isBattleList);
     auto function = reinterpret_cast<GetId>(ClassMemberFunctions["Item.getId"]);
+    if (!function) return;
     void* pMysteryPtr = nullptr;
     itemId = function(thing, &pMysteryPtr);
 }

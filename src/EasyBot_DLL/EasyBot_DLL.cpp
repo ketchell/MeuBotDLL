@@ -255,14 +255,22 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         iLog(buf);
     }
 
-    // ---- Step 7: Install look hook ----
+    // ---- Step 7: Install look hook (stdcall servers only) ----
     if (SingletonFunctions["g_game.look"].first) {
-        MH_CreateHook(
-            reinterpret_cast<LPVOID>(SingletonFunctions["g_game.look"].first),
-            reinterpret_cast<LPVOID>(&hooked_Look),
-            reinterpret_cast<LPVOID*>(&look_original));
-        MH_EnableHook(reinterpret_cast<LPVOID>(SingletonFunctions["g_game.look"].first));
-        iLog("Look hook installed");
+        uintptr_t lookAddr = SingletonFunctions["g_game.look"].first;
+        unsigned char lookFirstByte = *reinterpret_cast<const unsigned char*>(lookAddr);
+        if (lookFirstByte == 0x55) {
+            MH_CreateHook(reinterpret_cast<LPVOID>(lookAddr),
+                          reinterpret_cast<LPVOID>(&hooked_Look),
+                          reinterpret_cast<LPVOID*>(&look_original));
+            MH_EnableHook(reinterpret_cast<LPVOID>(lookAddr));
+            iLog("Look hook installed");
+        } else {
+            char buf[80];
+            snprintf(buf, sizeof(buf),
+                "g_game.look is cdecl (0x%02X) — look hook skipped", lookFirstByte);
+            iLog(buf);
+        }
     } else {
         iLog("g_game.look not found — look hook skipped");
     }
