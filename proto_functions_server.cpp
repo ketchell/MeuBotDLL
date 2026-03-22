@@ -181,6 +181,12 @@ Status BotServiceImpl::SafeLogout(ServerContext* context, const google::protobuf
 
 // ================= Game.h =================
 Status BotServiceImpl::Walk(ServerContext* context, const google::protobuf::Int32Value* request, google::protobuf::Empty* response) {
+    static int logCount = 0;
+    if (logCount++ < 5) {
+        FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
+        if (f) { fprintf(f, "Walk called: dir=%d  g_game.walk=0x%08X\n",
+            request->value(), (unsigned)SingletonFunctions["g_game.walk"].first); fclose(f); }
+    }
     g_game->walk(static_cast<Otc::Direction>(request->value()));
     return Status::OK;
 }
@@ -189,16 +195,33 @@ Status BotServiceImpl::AutoWalkGame(ServerContext* context, const bot::bot_AutoW
     std::vector<Otc::Direction> dirs;
     for (auto item : request->direction().dirs())
         dirs.push_back(static_cast<Otc::Direction>(item));
+    static int logCount = 0;
+    if (logCount++ < 5) {
+        FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
+        if (f) { fprintf(f, "AutoWalkGame called: dirs=%d  startpos=%d,%d,%d  g_game.autoWalk=0x%08X\n",
+            (int)dirs.size(), request->startpos().x(), request->startpos().y(), request->startpos().z(),
+            (unsigned)SingletonFunctions["g_game.autoWalk"].first); fclose(f); }
+    }
     g_game->autoWalk(dirs, toPos(request->startpos()));
     return Status::OK;
 }
 
 Status BotServiceImpl::Turn(ServerContext* context, const google::protobuf::Int32Value* request, google::protobuf::Empty* response) {
+    static int logCount = 0;
+    if (logCount++ < 5) {
+        FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
+        if (f) { fprintf(f, "Turn called: dir=%d\n", request->value()); fclose(f); }
+    }
     g_game->turn(static_cast<Otc::Direction>(request->value()));
     return Status::OK;
 }
 
 Status BotServiceImpl::Stop(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::Empty* response) {
+    static int logCount = 0;
+    if (logCount++ < 5) {
+        FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
+        if (f) { fprintf(f, "Stop called\n"); fclose(f); }
+    }
     g_game->stop();
     return Status::OK;
 }
@@ -678,7 +701,16 @@ Status BotServiceImpl::GetSpectators(ServerContext* context, const bot::bot_GetS
 
 Status BotServiceImpl::FindPath(ServerContext* context, const bot::bot_FindPathRequest* request, bot::bot_DirectionList* response) {
     // g_map.findPath uses SingletonFunctions — safe on Lua wrapper servers
-    for (auto dir : g_map->findPath(toPos(request->startpos()), toPos(request->goalpos()), request->maxcomplexity(), request->flags()))
+    auto dirs = g_map->findPath(toPos(request->startpos()), toPos(request->goalpos()), request->maxcomplexity(), request->flags());
+    static int logCount = 0;
+    if (logCount++ < 5) {
+        FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
+        if (f) { fprintf(f, "FindPath called: from=%d,%d,%d to=%d,%d,%d  result_dirs=%d  g_map.findPath=0x%08X\n",
+            request->startpos().x(), request->startpos().y(), request->startpos().z(),
+            request->goalpos().x(),  request->goalpos().y(),  request->goalpos().z(),
+            (int)dirs.size(), (unsigned)SingletonFunctions["g_map.findPath"].first); fclose(f); }
+    }
+    for (auto dir : dirs)
         response->add_dirs(static_cast<bot::bot_Direction>(dir));
     return Status::OK;
 }
