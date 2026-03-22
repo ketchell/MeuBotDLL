@@ -16,6 +16,13 @@
 // Helpers
 // ============================================================================
 
+static void rpcLog(const char* name) {
+    static int count = 0;
+    if (count++ > 200) return;
+    FILE* f = fopen("C:\\easybot_rpc.log", "a");
+    if (f) { fprintf(f, "%s\n", name); fclose(f); }
+}
+
 template<typename T>
 SmartPtr<T> toPtr(uint64_t val) {
     return SmartPtr<T>(val);
@@ -181,6 +188,7 @@ Status BotServiceImpl::SafeLogout(ServerContext* context, const google::protobuf
 
 // ================= Game.h =================
 Status BotServiceImpl::Walk(ServerContext* context, const google::protobuf::Int32Value* request, google::protobuf::Empty* response) {
+    rpcLog("Walk");
     static int logCount = 0;
     if (logCount++ < 5) {
         FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
@@ -192,6 +200,7 @@ Status BotServiceImpl::Walk(ServerContext* context, const google::protobuf::Int3
 }
 
 Status BotServiceImpl::AutoWalkGame(ServerContext* context, const bot::bot_AutoWalkGameRequest* request, google::protobuf::Empty* response) {
+    rpcLog("AutoWalkGame");
     std::vector<Otc::Direction> dirs;
     for (auto item : request->direction().dirs())
         dirs.push_back(static_cast<Otc::Direction>(item));
@@ -207,6 +216,7 @@ Status BotServiceImpl::AutoWalkGame(ServerContext* context, const bot::bot_AutoW
 }
 
 Status BotServiceImpl::Turn(ServerContext* context, const google::protobuf::Int32Value* request, google::protobuf::Empty* response) {
+    rpcLog("Turn");
     static int logCount = 0;
     if (logCount++ < 5) {
         FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
@@ -217,6 +227,7 @@ Status BotServiceImpl::Turn(ServerContext* context, const google::protobuf::Int3
 }
 
 Status BotServiceImpl::Stop(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::Empty* response) {
+    rpcLog("Stop");
     static int logCount = 0;
     if (logCount++ < 5) {
         FILE* f = fopen("C:\\easybot_walker_debug.log", "a");
@@ -282,6 +293,7 @@ Status BotServiceImpl::RefreshContainer(ServerContext* context, const google::pr
 }
 
 Status BotServiceImpl::Attack(ServerContext* context, const bot::bot_AttackRequest* request, google::protobuf::Empty* response) {
+    rpcLog("Attack");
     g_game->attack(toPtr<Creature>(request->creature()), request->cancel());
     return Status::OK;
 }
@@ -292,6 +304,7 @@ Status BotServiceImpl::CancelAttack(ServerContext* context, const google::protob
 }
 
 Status BotServiceImpl::Follow(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Empty* response) {
+    rpcLog("Follow");
     g_game->follow(toPtr<Creature>(request->value()));
     return Status::OK;
 }
@@ -377,6 +390,7 @@ Status BotServiceImpl::CanPerformGameAction(ServerContext* context, const google
 }
 
 Status BotServiceImpl::IsOnline(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::BoolValue* response) {
+    rpcLog("IsOnline");
     if (!g_ready) return notReady();
     response->set_value(g_game->isOnline());
     return Status::OK;
@@ -404,6 +418,7 @@ Status BotServiceImpl::GetContainers(ServerContext* context, const google::proto
 }
 
 Status BotServiceImpl::GetAttackingCreature(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::UInt64Value* response) {
+    rpcLog("GetAttackingCreature");
     response->set_value(g_game->getAttackingCreature());
     return Status::OK;
 }
@@ -414,6 +429,7 @@ Status BotServiceImpl::GetFollowingCreature(ServerContext* context, const google
 }
 
 Status BotServiceImpl::GetLocalPlayer(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::UInt64Value* response) {
+    rpcLog("GetLocalPlayer");
     if (!g_ready) return notReady();
     response->set_value(g_game->getLocalPlayer());
     return Status::OK;
@@ -426,6 +442,7 @@ Status BotServiceImpl::GetClientVersion(ServerContext* context, const google::pr
 }
 
 Status BotServiceImpl::GetCharacterName(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::StringValue* response) {
+    rpcLog("GetCharacterName");
     if (!g_ready) return notReady();
     response->set_value(g_game->getCharacterName());
     return Status::OK;
@@ -489,6 +506,7 @@ Status BotServiceImpl::GetText(ServerContext* context, const google::protobuf::U
 // ================= LocalPlayer.h =================
 
 Status BotServiceImpl::GetStates(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    rpcLog("GetStates");
     if (!g_ready) return notReady();
     if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(static_cast<uint32_t>(g_localPlayer->getStates(toPtr<LocalPlayer>(request->value()))));
@@ -496,6 +514,7 @@ Status BotServiceImpl::GetStates(ServerContext* context, const google::protobuf:
 }
 
 Status BotServiceImpl::GetHealth(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
+    rpcLog("GetHealth");
     if (!g_ready) return notReady();
     if (g_isLuaWrapperServer) {
         if (!g_botOffsets.creature_health) return notLuaWrapper();
@@ -540,6 +559,7 @@ Status BotServiceImpl::GetFreeCapacity(ServerContext* context, const google::pro
 }
 
 Status BotServiceImpl::GetLevel(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    rpcLog("GetLevel");
     if (!g_ready) return notReady();
     if (g_isLuaWrapperServer) {
         if (!g_botOffsets.player_level) return notLuaWrapper();
@@ -662,18 +682,21 @@ Status BotServiceImpl::HasSight(ServerContext* context, const bot::bot_HasSightR
 }
 
 Status BotServiceImpl::IsAutoWalking(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
+    rpcLog("IsAutoWalking");
     if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_localPlayer->isAutoWalking(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::StopAutoWalk(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Empty* response) {
+    rpcLog("StopAutoWalk");
     if (g_isLuaWrapperServer) return Status::OK;  // ClassMember — no-op
     g_localPlayer->stopAutoWalk(toPtr<LocalPlayer>(request->value()));
     return Status::OK;
 }
 
 Status BotServiceImpl::AutoWalk(ServerContext* context, const bot::bot_AutoWalkRequest* request, google::protobuf::BoolValue* response) {
+    rpcLog("AutoWalk");
     if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_localPlayer->autoWalk(toPtr<LocalPlayer>(request->localplayer()), toPos(request->destination()), request->retry()));
     return Status::OK;
@@ -687,12 +710,14 @@ Status BotServiceImpl::SetLightHack(ServerContext* context, const bot::bot_SetLi
 
 // ================= Map.h =================
 Status BotServiceImpl::GetTile(ServerContext* context, const bot::bot_Position* request, google::protobuf::UInt64Value* response) {
+    rpcLog("GetTile");
     // g_map.getTile uses SingletonFunctions — safe on Lua wrapper servers
     response->set_value(g_map->getTile(toPos(*request)));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSpectators(ServerContext* context, const bot::bot_GetSpectatorsRequest* request, bot::bot_Uint64List* response) {
+    rpcLog("GetSpectators");
     // g_map.getSpectators uses SingletonFunctions — safe on Lua wrapper servers
     for (auto s : g_map->getSpectators(toPos(request->centerpos()), request->multifloor()))
         response->add_items(s);
@@ -700,6 +725,7 @@ Status BotServiceImpl::GetSpectators(ServerContext* context, const bot::bot_GetS
 }
 
 Status BotServiceImpl::FindPath(ServerContext* context, const bot::bot_FindPathRequest* request, bot::bot_DirectionList* response) {
+    rpcLog("FindPath");
     // g_map.findPath uses SingletonFunctions — safe on Lua wrapper servers
     auto dirs = g_map->findPath(toPos(request->startpos()), toPos(request->goalpos()), request->maxcomplexity(), request->flags());
     static int logCount = 0;
@@ -716,6 +742,7 @@ Status BotServiceImpl::FindPath(ServerContext* context, const bot::bot_FindPathR
 }
 
 Status BotServiceImpl::IsSightClear(ServerContext* context, const bot::bot_IsSightClearRequest* request, google::protobuf::BoolValue* response) {
+    rpcLog("IsSightClear");
     // g_map.isSightClear uses SingletonFunctions — safe on Lua wrapper servers
     response->set_value(g_map->isSightClear(toPos(request->frompos()), toPos(request->topos())));
     return Status::OK;
@@ -729,6 +756,7 @@ Status BotServiceImpl::GetId(ServerContext* context, const google::protobuf::UIn
 }
 
 Status BotServiceImpl::GetPosition(ServerContext* context, const google::protobuf::UInt64Value* request, bot::bot_Position* response) {
+    rpcLog("GetPosition");
     if (g_isLuaWrapperServer) {
         if (!g_botOffsets.thing_positionOffset) return notLuaWrapper();
         uintptr_t thingPtr = (uintptr_t)request->value();
@@ -838,6 +866,7 @@ Status BotServiceImpl::GetTileItems(ServerContext* context, const google::protob
 }
 
 Status BotServiceImpl::IsWalkable(ServerContext* context, const bot::bot_IsWalkableRequest* request, google::protobuf::BoolValue* response) {
+    rpcLog("IsWalkable");
     if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // Tile.isWalkable is ClassMember — safe default
     response->set_value(g_tile->isWalkable(toPtr<Tile>(request->tile()), request->ignorecreatures()));
     return Status::OK;
