@@ -42,6 +42,7 @@ bool RunOffsetResolver() {
     g_botOffsets.player_level           = s_gameOffsets.player_level;
     g_botOffsets.player_soul            = s_gameOffsets.player_soul;
     g_botOffsets.player_stamina         = s_gameOffsets.player_stamina;
+    g_botOffsets.thing_positionOffset   = s_gameOffsets.creature_position;
     g_botOffsets.resolved               = s_gameOffsets.resolved;
 
     g_botOffsets.creature_health_isDouble    = s_gameOffsets.creature_health_isDouble;

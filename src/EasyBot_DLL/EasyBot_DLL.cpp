@@ -8,6 +8,7 @@
 #include "Container.h"
 #include "Item.h"
 #include "AutoPatternFinder.h"
+#include "offsets_global.h"
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -263,19 +264,28 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         uintptr_t lv = ClassMemberFunctions["LocalPlayer.getLevel"];
         uintptr_t mh = ClassMemberFunctions["LocalPlayer.getMaxHealth"];
 
-        int dupes = 0;
-        if (hp && hp == mp) dupes++;
-        if (hp && hp == lv) dupes++;
-        if (hp && hp == mh) dupes++;
-
-        isLuaWrapperServer = (dupes >= 2);
-
         char buf[256];
-        snprintf(buf, sizeof(buf),
-            "LuaWrapper detect: hp=0x%08X mp=0x%08X lv=0x%08X mh=0x%08X dupes=%d -> %s",
-            (unsigned)hp, (unsigned)mp, (unsigned)lv, (unsigned)mh, dupes,
-            isLuaWrapperServer ? "LUA WRAPPER SERVER" : "direct C++ server");
-        iLog(buf);
+        if (ClassMemberFunctions.size() < 10) {
+            // No class members captured at all — Lua wrapper server that exposes only singletons
+            isLuaWrapperServer = true;
+            snprintf(buf, sizeof(buf),
+                "LuaWrapper detect: ClassMemberFunctions=%d (nearly empty) -> LUA WRAPPER SERVER",
+                (int)ClassMemberFunctions.size());
+            iLog(buf);
+        } else {
+            int dupes = 0;
+            if (hp && hp == mp) dupes++;
+            if (hp && hp == lv) dupes++;
+            if (hp && hp == mh) dupes++;
+
+            isLuaWrapperServer = (dupes >= 2);
+
+            snprintf(buf, sizeof(buf),
+                "LuaWrapper detect: hp=0x%08X mp=0x%08X lv=0x%08X mh=0x%08X dupes=%d -> %s",
+                (unsigned)hp, (unsigned)mp, (unsigned)lv, (unsigned)mh, dupes,
+                isLuaWrapperServer ? "LUA WRAPPER SERVER" : "direct C++ server");
+            iLog(buf);
+        }
     }
 
     if (isLuaWrapperServer) {
@@ -294,6 +304,67 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
                               : "Singletons are SHARED — also wrappers!");
     }
     g_isLuaWrapperServer = isLuaWrapperServer;
+
+    if (isLuaWrapperServer) {
+        iLog("Running OffsetResolver for Lua wrapper server...");
+        bool ok = RunOffsetResolver();
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "OffsetResolver: ok=%d  health=0x%X maxHealth=0x%X mana=0x%X level=0x%X soul=0x%X stamina=0x%X",
+            (int)ok,
+            g_botOffsets.creature_health, g_botOffsets.creature_maxHealth,
+            g_botOffsets.player_mana,     g_botOffsets.player_level,
+            g_botOffsets.player_soul,     g_botOffsets.player_stamina);
+        iLog(buf);
+        snprintf(buf, sizeof(buf),
+            "OffsetResolver: g_game_ptr=0x%08X game_localPlayer=0x%X",
+            (unsigned)g_botOffsets.g_game_ptr_addr, g_botOffsets.game_localPlayer);
+        iLog(buf);
+
+        // TODO: fix OffsetResolver to find these correctly.
+        // Verified offsets from memory dump on Nostalrius (all values are C++ double, 8 bytes):
+        //   +0x4C0=health, +0x4C8=maxHealth, +0x4D0=freeCap, +0x4D8=totalCap,
+        //   +0x4E0=mana,   +0x4E8=level(1.0), +0x4F0=maxMana(unverified),
+        //   +0x520=soul,   +0x530=stamina(minutes), +0x00C=position{x,y,z}
+        g_botOffsets.creature_health    = 0x4C0;
+        g_botOffsets.creature_maxHealth = 0x4C8;
+        g_botOffsets.player_mana        = 0x4E0;
+        g_botOffsets.player_maxMana     = 0x4F0;  // unverified — check memdump at 0x4F0
+        g_botOffsets.player_level       = 0x4E8;
+        g_botOffsets.player_soul        = 0x520;
+        g_botOffsets.player_stamina     = 0x530;
+        g_botOffsets.thing_positionOffset = 0x00C;
+        g_botOffsets.resolved           = true;
+
+        snprintf(buf, sizeof(buf),
+            "Overrides applied: hp=0x%X mhp=0x%X mp=0x%X mmp=0x%X lvl=0x%X soul=0x%X stam=0x%X pos=0x%X",
+            g_botOffsets.creature_health,    g_botOffsets.creature_maxHealth,
+            g_botOffsets.player_mana,        g_botOffsets.player_maxMana,
+            g_botOffsets.player_level,       g_botOffsets.player_soul,
+            g_botOffsets.player_stamina,     g_botOffsets.thing_positionOffset);
+        iLog(buf);
+
+        // Diagnostic: log walker-critical function addresses to determine which are safe.
+        // Map functions use SingletonFunctions (safe on Lua wrapper servers).
+        // LocalPlayer walk functions use ClassMemberFunctions (may be Lua wrappers).
+        char wbuf[512];
+        snprintf(wbuf, sizeof(wbuf),
+            "Walker singletons: autoWalk=0x%08X findPath=0x%08X getTile=0x%08X getSpectators=0x%08X isSightClear=0x%08X",
+            (unsigned)SingletonFunctions["g_game.autoWalk"].first,
+            (unsigned)SingletonFunctions["g_map.findPath"].first,
+            (unsigned)SingletonFunctions["g_map.getTile"].first,
+            (unsigned)SingletonFunctions["g_map.getSpectators"].first,
+            (unsigned)SingletonFunctions["g_map.isSightClear"].first);
+        iLog(wbuf);
+        snprintf(wbuf, sizeof(wbuf),
+            "Walker classmembers: LP.autoWalk=0x%08X LP.stopAutoWalk=0x%08X LP.isAutoWalking=0x%08X Tile.isWalkable=0x%08X",
+            (unsigned)ClassMemberFunctions["LocalPlayer.autoWalk"],
+            (unsigned)ClassMemberFunctions["LocalPlayer.stopAutoWalk"],
+            (unsigned)ClassMemberFunctions["LocalPlayer.isAutoWalking"],
+            (unsigned)ClassMemberFunctions["Tile.isWalkable"]);
+        iLog(wbuf);
+        iLog(SingletonFunctions.count("g_map.isWalkable") ? "g_map.isWalkable EXISTS" : "g_map.isWalkable NOT FOUND");
+    }
 
     // ---- Step 7: Install look hook (stdcall servers only) ----
     if (SingletonFunctions["g_game.look"].first) {

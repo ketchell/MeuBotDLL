@@ -28,6 +28,15 @@ static grpc::Status notLuaWrapper() {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Not supported on Lua wrapper servers");
 }
 
+// Read an 8-byte double from game memory on the game thread.
+static double ReadDoubleOffset(uintptr_t ptr, uint32_t off) {
+    return g_dispatcher->scheduleEventEx([ptr, off]() -> double {
+        double v = 0;
+        memcpy(&v, reinterpret_cast<const void*>(ptr + off), sizeof(v));
+        return v;
+    });
+}
+
 Position toPos(const bot::bot_Position& proto) {
     return { static_cast<int32_t>(proto.x()), static_cast<int32_t>(proto.y()), static_cast<int16_t>(proto.z()) };
 }
@@ -130,19 +139,19 @@ Status BotServiceImpl::GetSkull(ServerContext* context, const google::protobuf::
 }
 
 Status BotServiceImpl::GetDirection(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Int32Value* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(0); return Status::OK; }  // ClassMember — safe default (North)
     response->set_value(static_cast<int32_t>(g_creature->getDirection(toPtr<Creature>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsDead(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_creature->isDead(toPtr<Creature>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsWalking(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_creature->isWalking(toPtr<Creature>(request->value())));
     return Status::OK;
 }
@@ -465,56 +474,148 @@ Status BotServiceImpl::GetStates(ServerContext* context, const google::protobuf:
 
 Status BotServiceImpl::GetHealth(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.creature_health) return notLuaWrapper();
+        uintptr_t lp = (uintptr_t)request->value();
+        double val = g_dispatcher->scheduleEventEx([lp]() -> double {
+            double result = 0;
+            memcpy(&result, reinterpret_cast<const void*>(lp + g_botOffsets.creature_health), sizeof(result));
+            static int logCount = 0;
+            if (logCount++ < 5) {
+                FILE* f = fopen("C:\\easybot_offset_debug.log", "a");
+                if (f) {
+                    fprintf(f, "GetHealth: ptr=0x%08X offset=0x%X raw=%.1f\n",
+                        (unsigned)lp, g_botOffsets.creature_health, result);
+                    fclose(f);
+                }
+            }
+            return result;
+        });
+        response->set_value(val);
+        return Status::OK;
+    }
     response->set_value(g_localPlayer->getHealth(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMaxHealth(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.creature_maxHealth) return notLuaWrapper();
+        response->set_value(ReadDoubleOffset((uintptr_t)request->value(), g_botOffsets.creature_maxHealth));
+        return Status::OK;
+    }
     response->set_value(g_localPlayer->getMaxHealth(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetFreeCapacity(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) return notLuaWrapper();  // no offset for freeCapacity yet
     response->set_value(g_localPlayer->getFreeCapacity(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetLevel(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.player_level) return notLuaWrapper();
+        uintptr_t lp = (uintptr_t)request->value();
+        double val = g_dispatcher->scheduleEventEx([lp]() -> double {
+            // --- one-shot memory dump to find correct offsets ---
+            static bool dumped = false;
+            if (!dumped) {
+                dumped = true;
+                FILE* f = fopen("C:\\easybot_memdump.log", "w");
+                if (f) {
+                    fprintf(f, "LocalPlayer ptr = 0x%08X\n", (unsigned)lp);
+                    fprintf(f, "Looking for level value (doubles at various offsets):\n\n");
+                    for (int off = 0; off <= 0x600; off += 8) {
+                        double v = 0;
+                        memcpy(&v, reinterpret_cast<const void*>(lp + off), sizeof(v));
+                        if (v > 0.5 && v < 100000.0)
+                            fprintf(f, "  +0x%03X = %.1f\n", off, v);
+                    }
+                    fprintf(f, "\nUint32 values:\n");
+                    for (int off = 0; off <= 0x600; off += 4) {
+                        uint32_t v = 0;
+                        memcpy(&v, reinterpret_cast<const void*>(lp + off), sizeof(v));
+                        if (v > 1 && v < 100000)
+                            fprintf(f, "  +0x%03X = %u (0x%X)\n", off, v, v);
+                    }
+                    fprintf(f, "\nPosition search (x=30000-40000, y=30000-40000):\n");
+                    for (int off = 0; off <= 0x100; off += 4) {
+                        int32_t x = 0, y = 0; int16_t z = 0;
+                        memcpy(&x, reinterpret_cast<const void*>(lp + off),     sizeof(x));
+                        memcpy(&y, reinterpret_cast<const void*>(lp + off + 4), sizeof(y));
+                        memcpy(&z, reinterpret_cast<const void*>(lp + off + 8), sizeof(z));
+                        if (x > 30000 && x < 40000 && y > 30000 && y < 40000)
+                            fprintf(f, "  +0x%03X: x=%d y=%d z=%d\n", off, x, y, (int)z);
+                    }
+                    fclose(f);
+                }
+            }
+            // --- normal offset read ---
+            double result = 0;
+            memcpy(&result, reinterpret_cast<const void*>(lp + g_botOffsets.player_level), sizeof(result));
+            static int logCount = 0;
+            if (logCount++ < 5) {
+                FILE* f = fopen("C:\\easybot_offset_debug.log", "a");
+                if (f) {
+                    fprintf(f, "GetLevel: ptr=0x%08X offset=0x%X raw=%.1f\n",
+                        (unsigned)lp, g_botOffsets.player_level, result);
+                    fclose(f);
+                }
+            }
+            return result;
+        });
+        response->set_value(static_cast<uint32_t>(val));
+        return Status::OK;
+    }
     response->set_value(static_cast<uint32_t>(g_localPlayer->getLevel(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMana(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.player_mana) return notLuaWrapper();
+        response->set_value(ReadDoubleOffset((uintptr_t)request->value(), g_botOffsets.player_mana));
+        return Status::OK;
+    }
     response->set_value(g_localPlayer->getMana(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetMaxMana(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::DoubleValue* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.player_maxMana) return notLuaWrapper();
+        response->set_value(ReadDoubleOffset((uintptr_t)request->value(), g_botOffsets.player_maxMana));
+        return Status::OK;
+    }
     response->set_value(g_localPlayer->getMaxMana(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSoul(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.player_soul) return notLuaWrapper();
+        response->set_value(static_cast<uint32_t>(ReadDoubleOffset((uintptr_t)request->value(), g_botOffsets.player_soul)));
+        return Status::OK;
+    }
     response->set_value(static_cast<uint32_t>(g_localPlayer->getSoul(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetStamina(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     if (!g_ready) return notReady();
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.player_stamina) return notLuaWrapper();
+        response->set_value(static_cast<uint32_t>(ReadDoubleOffset((uintptr_t)request->value(), g_botOffsets.player_stamina)));
+        return Status::OK;
+    }
     response->set_value(static_cast<uint32_t>(g_localPlayer->getStamina(toPtr<LocalPlayer>(request->value()))));
     return Status::OK;
 }
@@ -538,19 +639,19 @@ Status BotServiceImpl::HasSight(ServerContext* context, const bot::bot_HasSightR
 }
 
 Status BotServiceImpl::IsAutoWalking(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_localPlayer->isAutoWalking(toPtr<LocalPlayer>(request->value())));
     return Status::OK;
 }
 
 Status BotServiceImpl::StopAutoWalk(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::Empty* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) return Status::OK;  // ClassMember — no-op
     g_localPlayer->stopAutoWalk(toPtr<LocalPlayer>(request->value()));
     return Status::OK;
 }
 
 Status BotServiceImpl::AutoWalk(ServerContext* context, const bot::bot_AutoWalkRequest* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // ClassMember — safe default
     response->set_value(g_localPlayer->autoWalk(toPtr<LocalPlayer>(request->localplayer()), toPos(request->destination()), request->retry()));
     return Status::OK;
 }
@@ -563,27 +664,27 @@ Status BotServiceImpl::SetLightHack(ServerContext* context, const bot::bot_SetLi
 
 // ================= Map.h =================
 Status BotServiceImpl::GetTile(ServerContext* context, const bot::bot_Position* request, google::protobuf::UInt64Value* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    // g_map.getTile uses SingletonFunctions — safe on Lua wrapper servers
     response->set_value(g_map->getTile(toPos(*request)));
     return Status::OK;
 }
 
 Status BotServiceImpl::GetSpectators(ServerContext* context, const bot::bot_GetSpectatorsRequest* request, bot::bot_Uint64List* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    // g_map.getSpectators uses SingletonFunctions — safe on Lua wrapper servers
     for (auto s : g_map->getSpectators(toPos(request->centerpos()), request->multifloor()))
         response->add_items(s);
     return Status::OK;
 }
 
 Status BotServiceImpl::FindPath(ServerContext* context, const bot::bot_FindPathRequest* request, bot::bot_DirectionList* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    // g_map.findPath uses SingletonFunctions — safe on Lua wrapper servers
     for (auto dir : g_map->findPath(toPos(request->startpos()), toPos(request->goalpos()), request->maxcomplexity(), request->flags()))
         response->add_dirs(static_cast<bot::bot_Direction>(dir));
     return Status::OK;
 }
 
 Status BotServiceImpl::IsSightClear(ServerContext* context, const bot::bot_IsSightClearRequest* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    // g_map.isSightClear uses SingletonFunctions — safe on Lua wrapper servers
     response->set_value(g_map->isSightClear(toPos(request->frompos()), toPos(request->topos())));
     return Status::OK;
 }
@@ -596,7 +697,30 @@ Status BotServiceImpl::GetId(ServerContext* context, const google::protobuf::UIn
 }
 
 Status BotServiceImpl::GetPosition(ServerContext* context, const google::protobuf::UInt64Value* request, bot::bot_Position* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) {
+        if (!g_botOffsets.thing_positionOffset) return notLuaWrapper();
+        uintptr_t thingPtr = (uintptr_t)request->value();
+        if (!thingPtr) return notReady();
+        struct RawPos { int32_t x, y; int16_t z; };
+        RawPos pos = g_dispatcher->scheduleEventEx([thingPtr]() -> RawPos {
+            RawPos p{};
+            memcpy(&p, reinterpret_cast<const void*>(thingPtr + g_botOffsets.thing_positionOffset), sizeof(p));
+            static int logCount = 0;
+            if (logCount++ < 5) {
+                FILE* f = fopen("C:\\easybot_offset_debug.log", "a");
+                if (f) {
+                    fprintf(f, "GetPosition: ptr=0x%08X offset=0x%X x=%d y=%d z=%d\n",
+                        (unsigned)thingPtr, g_botOffsets.thing_positionOffset, p.x, p.y, p.z);
+                    fclose(f);
+                }
+            }
+            return p;
+        });
+        response->set_x(pos.x);
+        response->set_y(pos.y);
+        response->set_z(pos.z);
+        return Status::OK;
+    }
     fromPos(g_thing->getPosition(toPtr<Thing>(request->value())), response);
     return Status::OK;
 }
@@ -682,7 +806,7 @@ Status BotServiceImpl::GetTileItems(ServerContext* context, const google::protob
 }
 
 Status BotServiceImpl::IsWalkable(ServerContext* context, const bot::bot_IsWalkableRequest* request, google::protobuf::BoolValue* response) {
-    if (g_isLuaWrapperServer) return notLuaWrapper();
+    if (g_isLuaWrapperServer) { response->set_value(false); return Status::OK; }  // Tile.isWalkable is ClassMember — safe default
     response->set_value(g_tile->isWalkable(toPtr<Tile>(request->tile()), request->ignorecreatures()));
     return Status::OK;
 }
