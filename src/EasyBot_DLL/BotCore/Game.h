@@ -19,7 +19,10 @@ public:
 
     void safeLogout();
     void walk(Otc::Direction direction);
-    void autoWalk(const std::vector<Otc::Direction> &dirs, const Position &startPos);
+    void walkBatch(const std::vector<Otc::Direction>& dirs, int maxSteps);
+    bool autoWalk(const std::vector<Otc::Direction> &dirs, const Position &startPos);
+    // Lua-wrapper servers bind g_game.autoWalk as LocalPlayer::autoWalk — takes dest + retry.
+    bool autoWalkDest(const Position& dest, bool retry);
     void turn(Otc::Direction direction);
     void stop();
     void move(const ThingPtr& thing, const Position& toPos, int count);

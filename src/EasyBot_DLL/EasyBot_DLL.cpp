@@ -134,6 +134,7 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
     auto t0 = clk::now();
     iLog("MH_Initialize...");
     MH_Initialize();
+    InitTextRange();  // must run before any hook fires so IsInText() works
 
     uintptr_t modBase = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
     // Read SizeOfImage from the PE optional header.
@@ -233,7 +234,29 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
         iLog(buf);
     }
 
-    // ---- Step 6: Wait for bindings ----
+    // ---- Step 6: Wait for calibration then wait for bindings ----
+    // Phase A: wait for offset calibration to complete (requires ~15 samples each).
+    iLog("Waiting for offset calibration...");
+    {
+        int calibWait = 0;
+        while (!g_offsetsCalibrated) {
+            Sleep(10);
+            ++calibWait;
+            if (calibWait > 3000) {
+                // Calibration timed out — fall back to BuildConfig.h defaults and proceed.
+                iLog("TIMEOUT: calibration incomplete — using default offsets");
+                g_offsetsCalibrated = true;  // unblock capture phase
+                break;
+            }
+        }
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+            "Calibration done: singleton=0x%02X class=0x%02X waited=%dms",
+            singletonFunctionOffset, classFunctionOffset, calibWait * 10);
+        iLog(buf);
+    }
+
+    // Phase B: wait for g_game.look to be captured with the calibrated offsets.
     iLog("Waiting for g_game.look...");
     int waitCount = 0;
     while (!SingletonFunctions["g_game.look"].first) {
@@ -321,23 +344,11 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
             (unsigned)g_botOffsets.g_game_ptr_addr, g_botOffsets.game_localPlayer);
         iLog(buf);
 
-        // TODO: fix OffsetResolver to find these correctly.
-        // Verified offsets from memory dump on Nostalrius (all values are C++ double, 8 bytes):
-        //   +0x4C0=health, +0x4C8=maxHealth, +0x4D0=freeCap, +0x4D8=totalCap,
-        //   +0x4E0=mana,   +0x4E8=level(1.0), +0x4F0=maxMana(unverified),
-        //   +0x520=soul,   +0x530=stamina(minutes), +0x00C=position{x,y,z}
-        g_botOffsets.creature_health    = 0x4C0;
-        g_botOffsets.creature_maxHealth = 0x4C8;
-        g_botOffsets.player_mana        = 0x4E0;
-        g_botOffsets.player_maxMana     = 0x4F0;  // unverified — check memdump at 0x4F0
-        g_botOffsets.player_level       = 0x4E8;
-        g_botOffsets.player_soul        = 0x520;
-        g_botOffsets.player_stamina     = 0x530;
-        g_botOffsets.thing_positionOffset = 0x00C;
-        g_botOffsets.resolved           = true;
-
+        // Trust the OffsetResolver values — no server-specific overrides.
+        // Nostalrius note: if health shows wrong (e.g. 0x494 instead of 0x4C0), fix
+        // OffsetResolver's getter disassembly, don't re-add overrides here.
         snprintf(buf, sizeof(buf),
-            "Overrides applied: hp=0x%X mhp=0x%X mp=0x%X mmp=0x%X lvl=0x%X soul=0x%X stam=0x%X pos=0x%X",
+            "Final offsets: hp=0x%X mhp=0x%X mp=0x%X mmp=0x%X lvl=0x%X soul=0x%X stam=0x%X pos=0x%X",
             g_botOffsets.creature_health,    g_botOffsets.creature_maxHealth,
             g_botOffsets.player_mana,        g_botOffsets.player_maxMana,
             g_botOffsets.player_level,       g_botOffsets.player_soul,

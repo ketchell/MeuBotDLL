@@ -28,28 +28,99 @@ void Game::safeLogout() {
 
 void Game::walk(Otc::Direction direction)
 {
-    typedef bool(gameCall* Walk)(
-        uintptr_t ThisPtr,
-        Otc::Direction direction
-        );
-    auto function = reinterpret_cast<Walk>(SingletonFunctions["g_game.walk"].first);
-    if (!function) return;
-    return g_dispatcher->scheduleEventEx([function, direction]() {
-        function(SingletonFunctions["g_game.walk"].second, direction);
-    });
+    uintptr_t funcAddr = SingletonFunctions["g_game.walk"].first;
+    if (!funcAddr) return;
+    uintptr_t thisPtr = SingletonFunctions["g_game.walk"].second;
+
+    bool isThiscall = (*reinterpret_cast<const uint8_t*>(funcAddr) == 0x55);
+    if (isThiscall) {
+        typedef bool(gameCall* Walk_tc)(uintptr_t, Otc::Direction);
+        auto fn = reinterpret_cast<Walk_tc>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, direction]() {
+            fn(thisPtr, direction);
+        });
+    } else {
+        typedef bool(__cdecl* Walk_cd)(uintptr_t, Otc::Direction);
+        auto fn = reinterpret_cast<Walk_cd>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, direction]() {
+            fn(thisPtr, direction);
+        });
+    }
 }
 
-void Game::autoWalk(const std::vector<Otc::Direction>& dirs, const Position &startPos) {
-    typedef void(gameCall* AutoWalk)(
-        uintptr_t ThisPtr,
-        const std::vector<Otc::Direction> *dirs,
-        const Position *startPos
-        );
-    auto function = reinterpret_cast<AutoWalk>(SingletonFunctions["g_game.autoWalk"].first);
-    if (!function) return;
-    return g_dispatcher->scheduleEventEx([function, dirs, startPos]() {
-        function(SingletonFunctions["g_game.autoWalk"].second, &dirs, &startPos);
-    });
+bool Game::autoWalk(const std::vector<Otc::Direction>& dirs, const Position &startPos) {
+    uintptr_t funcAddr = SingletonFunctions["g_game.autoWalk"].first;
+    if (!funcAddr) return false;
+    uintptr_t thisPtr = SingletonFunctions["g_game.autoWalk"].second;
+
+    // Detect calling convention by first byte of the function.
+    // 0x55 (push ebp) = stdcall/thiscall — thisPtr goes in ECX.
+    // Anything else   = cdecl            — all args including thisPtr go on the stack.
+    bool isThiscall = (*reinterpret_cast<const uint8_t*>(funcAddr) == 0x55);
+
+    if (isThiscall) {
+        typedef bool(gameCall* AutoWalk_tc)(uintptr_t, const std::vector<Otc::Direction>*, const Position*);
+        auto fn = reinterpret_cast<AutoWalk_tc>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, dirs, startPos]() -> bool {
+            return fn(thisPtr, &dirs, &startPos);
+        });
+    } else {
+        typedef bool(__cdecl* AutoWalk_cd)(uintptr_t, const std::vector<Otc::Direction>*, const Position*);
+        auto fn = reinterpret_cast<AutoWalk_cd>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, dirs, startPos]() -> bool {
+            return fn(thisPtr, &dirs, &startPos);
+        });
+    }
+}
+
+void Game::walkBatch(const std::vector<Otc::Direction>& dirs, int maxSteps) {
+    uintptr_t funcAddr = SingletonFunctions["g_game.walk"].first;
+    if (!funcAddr) return;
+    uintptr_t thisPtr = SingletonFunctions["g_game.walk"].second;
+
+    int n = (int)dirs.size() < maxSteps ? (int)dirs.size() : maxSteps;
+    if (n <= 0) return;
+
+    // Slice out the steps we want to send — captured by value into the lambda.
+    std::vector<Otc::Direction> steps(dirs.begin(), dirs.begin() + n);
+
+    // Single game-thread dispatch: all walk calls happen in one event.
+    // The game client queues each direction internally and executes them at walking speed.
+    bool isThiscall = (*reinterpret_cast<const uint8_t*>(funcAddr) == 0x55);
+    if (isThiscall) {
+        typedef bool(gameCall* Walk_tc)(uintptr_t, Otc::Direction);
+        auto fn = reinterpret_cast<Walk_tc>(funcAddr);
+        g_dispatcher->scheduleEventEx([fn, thisPtr, steps]() {
+            for (auto dir : steps) fn(thisPtr, dir);
+        });
+    } else {
+        typedef bool(__cdecl* Walk_cd)(uintptr_t, Otc::Direction);
+        auto fn = reinterpret_cast<Walk_cd>(funcAddr);
+        g_dispatcher->scheduleEventEx([fn, thisPtr, steps]() {
+            for (auto dir : steps) fn(thisPtr, dir);
+        });
+    }
+}
+
+bool Game::autoWalkDest(const Position& dest, bool retry) {
+    uintptr_t funcAddr = SingletonFunctions["g_game.autoWalk"].first;
+    if (!funcAddr) return false;
+    uintptr_t thisPtr = SingletonFunctions["g_game.autoWalk"].second;
+
+    bool isThiscall = (*reinterpret_cast<const uint8_t*>(funcAddr) == 0x55);
+    if (isThiscall) {
+        typedef bool(gameCall* AutoWalkDest_tc)(uintptr_t, const Position*, bool);
+        auto fn = reinterpret_cast<AutoWalkDest_tc>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, dest, retry]() -> bool {
+            return fn(thisPtr, &dest, retry);
+        });
+    } else {
+        typedef bool(__cdecl* AutoWalkDest_cd)(uintptr_t, const Position*, bool);
+        auto fn = reinterpret_cast<AutoWalkDest_cd>(funcAddr);
+        return g_dispatcher->scheduleEventEx([fn, thisPtr, dest, retry]() -> bool {
+            return fn(thisPtr, &dest, retry);
+        });
+    }
 }
 
 void Game::turn(Otc::Direction direction)

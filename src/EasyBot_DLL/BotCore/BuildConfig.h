@@ -13,8 +13,8 @@ static const uint32_t lightHackOffset         = 0xAC;
 
 // EBP frame offsets used inside the hook functions to read the correct values
 // from the caller's stack frame via RtlCaptureContext.
-static const uint32_t classFunctionOffset     = 0xC;   // offset to func ptr for class member bindings
-static const uint32_t singletonFunctionOffset  = 0x10;  // offset to func ptr for g_game singleton bindings
+// NOTE: classFunctionOffset and singletonFunctionOffset are now writable inline
+// globals in hooks.h — auto-calibrated at startup by CalibrateFromBinding().
 static const uint32_t onTextMessageOffset      = 0x14;  // offset to onTextMessage args in callGlobalField frame
 static const uint32_t onTalkOffset             = 0x10;  // offset to onTalk StackArgs in callGlobalField frame
 
