@@ -1,4 +1,6 @@
 #include "Thing.h"
+#include <algorithm>
+#include <cctype>
 
 Thing* Thing::instance{nullptr};
 std::mutex Thing::mutex;

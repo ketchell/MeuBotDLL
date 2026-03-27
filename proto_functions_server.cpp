@@ -910,7 +910,12 @@ Status BotServiceImpl::IsUsable(ServerContext* context, const google::protobuf::
 
 Status BotServiceImpl::IsLyingCorpse(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::BoolValue* response) {
     rpcLog("IsLyingCorpse");    if (g_isLuaWrapperServer) return notLuaWrapper();
-    response->set_value(g_thing->isLyingCorpse(toPtr<Thing>(request->value())));
+    bool result = g_thing->isLyingCorpse(toPtr<Thing>(request->value()));
+    char dbg[128];
+    wsprintfA(dbg, "[EasyBot] IsLyingCorpse: thing=0x%p  result=%d\n",
+        (void*)request->value(), (int)result);
+    OutputDebugStringA(dbg);
+    response->set_value(result);
     return Status::OK;
 }
 
@@ -985,21 +990,171 @@ static void WritePortFile(int port) {
     f << port;
 }
 
+// ============================================================================
+// Shared memory port map: "EasyBotPortMap"
+// Holds up to 32 entries of { UINT64 hwnd, UINT32 port, UINT32 pid }.
+// Fixed-size types ensure the layout is identical on x86 and x64.
+// ============================================================================
+
+struct PortMapEntry {
+    UINT64 hwnd;   // store HWND as 64-bit so it works cross-architecture
+    UINT32 port;   // gRPC port
+    UINT32 pid;    // process ID
+};
+
+static constexpr int        kPortMapCapacity  = 32;
+static constexpr SIZE_T     kPortMapSize      = sizeof(PortMapEntry) * kPortMapCapacity;
+static constexpr const char kPortMapName[]    = "EasyBotPortMap";
+
+static HANDLE        g_hPortMapFile  = NULL;
+static PortMapEntry* g_portMap       = nullptr;
+static int           g_portMapSlot   = -1;    // index this process claimed
+static bool          g_portMapCreated = false; // true = we created it, false = opened existing
+
+static bool OpenOrCreatePortMap() {
+    // Try to open an existing mapping first.
+    g_hPortMapFile = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, kPortMapName);
+    if (!g_hPortMapFile) {
+        g_hPortMapFile = CreateFileMappingA(
+            INVALID_HANDLE_VALUE,
+            NULL,
+            PAGE_READWRITE,
+            0,
+            static_cast<DWORD>(kPortMapSize),
+            kPortMapName);
+        g_portMapCreated = (g_hPortMapFile != NULL);
+    } else {
+        g_portMapCreated = false;
+    }
+    if (!g_hPortMapFile)
+        return false;
+
+    g_portMap = static_cast<PortMapEntry*>(
+        MapViewOfFile(g_hPortMapFile, FILE_MAP_ALL_ACCESS, 0, 0, kPortMapSize));
+    return g_portMap != nullptr;
+}
+
+static BOOL CALLBACK FindGameWindowProc(HWND hwnd, LPARAM lParam) {
+    DWORD windowPid = 0;
+    GetWindowThreadProcessId(hwnd, &windowPid);
+    if (windowPid == GetCurrentProcessId()) {
+        char title[256] = "<no title>";
+        GetWindowTextA(hwnd, title, sizeof(title));
+        BOOL visible = IsWindowVisible(hwnd);
+
+        char dbg[384];
+        wsprintfA(dbg,
+            "[EasyBot] EnumWindows: hwnd=0x%p  visible=%d  title=\"%s\"\n",
+            hwnd, (int)visible, title);
+        OutputDebugStringA(dbg);
+
+        // Take the first visible top-level window belonging to this process.
+        if (visible) {
+            *reinterpret_cast<HWND*>(lParam) = hwnd;
+            return FALSE; // stop enumeration
+        }
+    }
+    return TRUE; // continue
+}
+
+static HWND FindGameWindow() {
+    OutputDebugStringA("[EasyBot] EnumWindows: listing all windows for current PID ---\n");
+    HWND result = NULL;
+    EnumWindows(FindGameWindowProc, reinterpret_cast<LPARAM>(&result));
+
+    char dbg[128];
+    wsprintfA(dbg, "[EasyBot] EnumWindows: selected hwnd=0x%p\n", result);
+    OutputDebugStringA(dbg);
+    return result;
+}
+
+static void RegisterInPortMap(DWORD pid, int port) {
+    if (!g_portMap) return;
+
+    HWND gameWnd = FindGameWindow();
+
+    for (int i = 0; i < kPortMapCapacity; ++i) {
+        // Use InterlockedCompareExchange so two DLLs starting simultaneously
+        // don't both claim the same slot.
+        if (InterlockedCompareExchange(
+                reinterpret_cast<volatile LONG*>(&g_portMap[i].pid),
+                static_cast<LONG>(pid),
+                0) == 0)
+        {
+            g_portMap[i].hwnd = (UINT64)(ULONG_PTR)gameWnd;
+            g_portMap[i].port = (UINT32)port;
+            g_portMapSlot = i;
+
+            char dbg[256];
+            wsprintfA(dbg,
+                "[EasyBot] PortMap: PID=%lu  port=%lu  hwnd=0x%p  slot=%d  shm=%s\n",
+                static_cast<unsigned long>(pid), static_cast<unsigned long>(port), gameWnd, i,
+                g_portMapCreated ? "created" : "opened existing");
+            OutputDebugStringA(dbg);
+            return;
+        }
+    }
+    // No free slot — map is full; just write over slot 0 as a last resort.
+    g_portMap[0].hwnd = (UINT64)(ULONG_PTR)gameWnd;
+    g_portMap[0].port = (UINT32)port;
+    g_portMap[0].pid  = (UINT32)pid;
+    g_portMapSlot = 0;
+
+    char dbg[256];
+    wsprintfA(dbg,
+        "[EasyBot] PortMap: PID=%lu  port=%lu  hwnd=0x%p  slot=0 (FORCED, map full)  shm=%s\n",
+        static_cast<unsigned long>(pid), static_cast<unsigned long>(port), gameWnd,
+        g_portMapCreated ? "created" : "opened existing");
+    OutputDebugStringA(dbg);
+}
+
+static void UnregisterFromPortMap() {
+    if (!g_portMap || g_portMapSlot < 0) return;
+    g_portMap[g_portMapSlot].hwnd = 0;
+    g_portMap[g_portMapSlot].port = 0;
+    InterlockedExchange(
+        reinterpret_cast<volatile LONG*>(&g_portMap[g_portMapSlot].pid), 0);
+    g_portMapSlot = -1;
+}
+
+static void CleanupPortMap() {
+    UnregisterFromPortMap();
+    if (g_portMap) {
+        UnmapViewOfFile(g_portMap);
+        g_portMap = nullptr;
+    }
+    if (g_hPortMapFile) {
+        CloseHandle(g_hPortMapFile);
+        g_hPortMapFile = NULL;
+    }
+}
+
+void UnregisterServerPort() {
+    CleanupPortMap();
+}
+
 void RunServer() {
     BotServiceImpl service;
-    int port = 50051;
-    std::unique_ptr<grpc::Server> server;
-
-    while (true) {
-        std::string server_address("0.0.0.0:" + std::to_string(port));
-        grpc::ServerBuilder builder;
-        builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-        builder.RegisterService(&service);
-        server = builder.BuildAndStart();
-        if (server) break;
-        port++;
+    int selected_port = 0;
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort("0.0.0.0:0", grpc::InsecureServerCredentials(), &selected_port);
+    builder.RegisterService(&service);
+    std::unique_ptr<grpc::Server> server = builder.BuildAndStart();
+    if (!server) {
+        OutputDebugStringA("[EasyBot] RunServer: BuildAndStart failed\n");
+        return;
     }
+
     Sleep(3000);
-    WritePortFile(port);
+    WritePortFile(selected_port);
+
+    // Register PID -> port in shared memory.
+    if (OpenOrCreatePortMap()) {
+        RegisterInPortMap(GetCurrentProcessId(), selected_port);
+    }
+
     server->Wait();
+
+    // Server has stopped — clean up our shared-memory slot.
+    CleanupPortMap();
 }

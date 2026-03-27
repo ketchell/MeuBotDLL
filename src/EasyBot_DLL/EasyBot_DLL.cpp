@@ -399,6 +399,22 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
 
     g_ready = true;
     iLog("g_ready=true — starting gRPC server");
+
+    {
+        char dbg[256];
+        auto it = ClassMemberFunctions.find("Thing.isLyingCorpse");
+        wsprintfA(dbg, "[EasyBot] Thing.isLyingCorpse = %s (ptr=%p)\n",
+            it != ClassMemberFunctions.end() ? "FOUND" : "NOT FOUND",
+            it != ClassMemberFunctions.end() ? (void*)it->second : nullptr);
+        OutputDebugStringA(dbg);
+
+        it = ClassMemberFunctions.find("Creature.isDead");
+        wsprintfA(dbg, "[EasyBot] Creature.isDead = %s (ptr=%p)\n",
+            it != ClassMemberFunctions.end() ? "FOUND" : "NOT FOUND",
+            it != ClassMemberFunctions.end() ? (void*)it->second : nullptr);
+        OutputDebugStringA(dbg);
+    }
+
     RunServer();
     return 0;
 }

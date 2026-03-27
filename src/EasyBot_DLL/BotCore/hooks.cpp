@@ -56,6 +56,15 @@ static int s_classTotal     = 0;
 // Shared counter for diagnostic log numbering across both hook variants.
 static int s_calCount = 0;
 
+// Buffer for class member calls that arrive during calibration.
+// Stores values at every candidate offset so we can pick the right one after calibration.
+struct CalibrationEntry {
+    char      key[128];
+    uintptr_t values[CALIB_SLOTS];  // value at ebp+0x08+i*4 for i in [0, CALIB_SLOTS)
+};
+static CalibrationEntry s_classBuffer[1024];
+static int              s_classBufferCount = 0;
+
 // ============================================================================
 // hooked_bindSingletonFunction (stdcall)
 // Calibration runs INSIDE this function so RtlCaptureContext captures a real
@@ -83,6 +92,14 @@ void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_
         }
         ++total;
 
+        // Buffer class member calls during calibration for later replay.
+        if (!isSingleton && s_classBufferCount < 1024) {
+            snprintf(s_classBuffer[s_classBufferCount].key, 128, "%s.%s", global.c_str(), field.c_str());
+            for (int i = 0; i < CALIB_SLOTS; ++i)
+                s_classBuffer[s_classBufferCount].values[i] = tryReadPtr(ebp + 0x08 + i * 4);
+            ++s_classBufferCount;
+        }
+
         // Dump the first 3 calls so we can see raw EBP content in the log.
         if (s_calCount <= 3) {
             FILE* f = fopen("C:\\easybot_calibrate.log", "a");
@@ -104,12 +121,28 @@ void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_
         if (s_singletonTotal >= CALIB_TARGET && s_classTotal >= CALIB_TARGET) {
             int bestSI = 0, bestCI = 0;
             for (int i = 1; i < CALIB_SLOTS; ++i) {
-                if (s_singletonHits[i] > s_singletonHits[bestSI]) bestSI = i;
-                if (s_classHits[i]     > s_classHits[bestCI])     bestCI = i;
+                if (s_singletonHits[i] >= s_singletonHits[bestSI]) bestSI = i;
+                if (s_classHits[i]     >= s_classHits[bestCI])     bestCI = i;
             }
             if (s_singletonHits[bestSI] > 0) singletonFunctionOffset = 0x08 + bestSI * 4;
             if (s_classHits[bestCI]     > 0) classFunctionOffset     = 0x08 + bestCI * 4;
             g_offsetsCalibrated = true;
+
+            // Replay buffered class members with the now-known classFunctionOffset.
+            {
+                int slotIdx = (classFunctionOffset - 0x08) / 4;
+                FILE* fh = fopen("C:\\easybot_hooks.log", "a");
+                for (int i = 0; i < s_classBufferCount; ++i) {
+                    uintptr_t fp = s_classBuffer[i].values[slotIdx];
+                    if (fp) ClassMemberFunctions[s_classBuffer[i].key] = fp;
+                    if (fh) fprintf(fh, "CLASS(replay): %s func=0x%08X\n", s_classBuffer[i].key, (unsigned)fp);
+                }
+                if (fh) {
+                    fprintf(fh, "Replayed %d class members (offset=0x%02X)\n",
+                        s_classBufferCount, classFunctionOffset);
+                    fclose(fh);
+                }
+            }
 
             FILE* f = fopen("C:\\easybot_calibrate.log", "a");
             if (f) {
@@ -122,7 +155,8 @@ void __stdcall hooked_bindSingletonFunction(uintptr_t a1, uintptr_t a2, uintptr_
                 for (int i = 0; i < CALIB_SLOTS; ++i) fprintf(f, " %d", s_singletonHits[i]);
                 fprintf(f, "\nclass histogram:   ");
                 for (int i = 0; i < CALIB_SLOTS; ++i) fprintf(f, " %d", s_classHits[i]);
-                fprintf(f, "\n");
+                fprintf(f, "\nReplayed %d buffered class members with offset 0x%02X\n",
+                    s_classBufferCount, classFunctionOffset);
                 fclose(f);
             }
         }
@@ -196,6 +230,14 @@ void __cdecl hooked_bindSingletonFunction_cdecl(uintptr_t a1, uintptr_t a2, uint
         }
         ++total;
 
+        // Buffer class member calls during calibration for later replay.
+        if (!isSingleton && s_classBufferCount < 1024) {
+            snprintf(s_classBuffer[s_classBufferCount].key, 128, "%s.%s", global.c_str(), field.c_str());
+            for (int i = 0; i < CALIB_SLOTS; ++i)
+                s_classBuffer[s_classBufferCount].values[i] = tryReadPtr(ebp + 0x08 + i * 4);
+            ++s_classBufferCount;
+        }
+
         if (s_calCount <= 3) {
             FILE* f = fopen("C:\\easybot_calibrate.log", "a");
             if (f) {
@@ -216,12 +258,28 @@ void __cdecl hooked_bindSingletonFunction_cdecl(uintptr_t a1, uintptr_t a2, uint
         if (s_singletonTotal >= CALIB_TARGET && s_classTotal >= CALIB_TARGET) {
             int bestSI = 0, bestCI = 0;
             for (int i = 1; i < CALIB_SLOTS; ++i) {
-                if (s_singletonHits[i] > s_singletonHits[bestSI]) bestSI = i;
-                if (s_classHits[i]     > s_classHits[bestCI])     bestCI = i;
+                if (s_singletonHits[i] >= s_singletonHits[bestSI]) bestSI = i;
+                if (s_classHits[i]     >= s_classHits[bestCI])     bestCI = i;
             }
             if (s_singletonHits[bestSI] > 0) singletonFunctionOffset = 0x08 + bestSI * 4;
             if (s_classHits[bestCI]     > 0) classFunctionOffset     = 0x08 + bestCI * 4;
             g_offsetsCalibrated = true;
+
+            // Replay buffered class members with the now-known classFunctionOffset.
+            {
+                int slotIdx = (classFunctionOffset - 0x08) / 4;
+                FILE* fh = fopen("C:\\easybot_hooks.log", "a");
+                for (int i = 0; i < s_classBufferCount; ++i) {
+                    uintptr_t fp = s_classBuffer[i].values[slotIdx];
+                    if (fp) ClassMemberFunctions[s_classBuffer[i].key] = fp;
+                    if (fh) fprintf(fh, "CLASS(replay): %s func=0x%08X\n", s_classBuffer[i].key, (unsigned)fp);
+                }
+                if (fh) {
+                    fprintf(fh, "Replayed %d class members (offset=0x%02X)\n",
+                        s_classBufferCount, classFunctionOffset);
+                    fclose(fh);
+                }
+            }
 
             FILE* f = fopen("C:\\easybot_calibrate.log", "a");
             if (f) {
@@ -234,7 +292,8 @@ void __cdecl hooked_bindSingletonFunction_cdecl(uintptr_t a1, uintptr_t a2, uint
                 for (int i = 0; i < CALIB_SLOTS; ++i) fprintf(f, " %d", s_singletonHits[i]);
                 fprintf(f, "\nclass histogram:   ");
                 for (int i = 0; i < CALIB_SLOTS; ++i) fprintf(f, " %d", s_classHits[i]);
-                fprintf(f, "\n");
+                fprintf(f, "\nReplayed %d buffered class members with offset 0x%02X\n",
+                    s_classBufferCount, classFunctionOffset);
                 fclose(f);
             }
         }

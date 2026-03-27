@@ -145,6 +145,7 @@ public:
 };
 
 void RunServer();
+void UnregisterServerPort();
 
 #endif // PROTO_FUNCTIONS_H
 
