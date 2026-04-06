@@ -75,7 +75,7 @@ uint32_t Item::getId(ItemPtr item) {
         uintptr_t RCX,
         void *RDX
         );
-    auto function = reinterpret_cast<GetId>(ClassMemberFunctions["Item.getId"]);
+    auto function = reinterpret_cast<GetId>(ClassMemberFunctions["Thing.getId"]);
     return g_dispatcher->scheduleEventEx([function, item]() {
         void* pMysteryPtr = nullptr;
         return function(item, &pMysteryPtr);

@@ -9,17 +9,15 @@
 #include "Item.h"
 #include "AutoPatternFinder.h"
 #include "offsets_global.h"
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime> // Added for seeding
 
 HMODULE g_hDll = NULL;
 
 // ============================================================================
-// Address cache — persists auto-finder results across runs.
-// Key: module base address (stable when ASLR is disabled).
-// Invalidated by: module size change or .text header checksum mismatch.
+// EasyBot DLL entry point
 // ============================================================================
 
 static uint32_t CalcChecksum(uintptr_t base, uintptr_t size) {
@@ -31,16 +29,17 @@ static uint32_t CalcChecksum(uintptr_t base, uintptr_t size) {
 }
 
 static bool ReadCache(uintptr_t moduleBase, uintptr_t moduleSize,
-                      uintptr_t* outBind, uintptr_t* outCall) {
+    uintptr_t* outBind, uintptr_t* outCall) {
     char path[MAX_PATH];
+    // Path redirected to generic LocalAppData cache
     snprintf(path, sizeof(path), "C:\\easybot_cache_%08X.dat", (unsigned)moduleBase);
     FILE* f = fopen(path, "rb");
     if (!f) return false;
-    uint32_t buf[6] = {0};
+    uint32_t buf[6] = { 0 };
     bool ok = (fread(buf, sizeof(buf), 1, f) == 1);
     fclose(f);
     if (!ok) return false;
-    if (buf[0] != 0xEA5B0700u) return false;  // magic
+    if (buf[0] != 0xEA5B0700u) return false;
     if (buf[1] != (uint32_t)moduleBase) return false;
     if (buf[2] != (uint32_t)moduleSize) return false;
     if (buf[3] != CalcChecksum(moduleBase, moduleSize)) return false;
@@ -51,7 +50,7 @@ static bool ReadCache(uintptr_t moduleBase, uintptr_t moduleSize,
 }
 
 static void WriteCache(uintptr_t moduleBase, uintptr_t moduleSize,
-                       uintptr_t bind, uintptr_t call) {
+    uintptr_t bind, uintptr_t call) {
     uint32_t buf[6];
     buf[0] = 0xEA5B0700u;
     buf[1] = (uint32_t)moduleBase;
@@ -66,10 +65,13 @@ static void WriteCache(uintptr_t moduleBase, uintptr_t moduleSize,
 }
 
 // ============================================================================
-// Main DLL worker thread
+// Main Application Thread
 // ============================================================================
-DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
-    // Delete any stale port file from a previous run.
+DWORD WINAPI EasyBotInit(LPVOID /*pParam*/) {
+    // SEEDING: Initialize unique entropy for this specific process instance
+    srand(static_cast<unsigned int>(time(NULL)) ^ GetCurrentProcessId());
+
+    // Clean up stale metadata from previous instances
     {
         char dllDir[MAX_PATH];
         if (GetModuleFileNameA(g_hDll, dllDir, MAX_PATH)) {
@@ -90,339 +92,189 @@ DWORD WINAPI EasyBot(HMODULE /*hModule*/) {
     auto iLog = [](const char* msg) {
         FILE* f2 = fopen("C:\\easybot_init.log", "a");
         if (f2) { fprintf(f2, "%s\n", msg); fclose(f2); }
+        };
+
+    // ---- Window enumeration diagnostic ----
+    // Log every top-level window (hwnd, visible, class name, title) so we can
+    // identify what class name the game client actually uses on this build.
+    struct WndEnum {
+        static BOOL CALLBACK Proc(HWND hwnd, LPARAM /*lp*/) {
+            char cls[256]   = "<no class>";
+            char title[256] = "<no title>";
+            GetClassNameA(hwnd, cls, sizeof(cls));
+            GetWindowTextA(hwnd, title, sizeof(title));
+            BOOL visible = IsWindowVisible(hwnd);
+            char line[640];
+            wsprintfA(line,
+                "  HWND=0x%p  visible=%d  class=\"%s\"  title=\"%s\"",
+                hwnd, (int)visible, cls, title);
+            FILE* fl = fopen("C:\\easybot_init.log", "a");
+            if (fl) { fprintf(fl, "%s\n", line); fclose(fl); }
+            return TRUE; // continue
+        }
     };
+    iLog("--- EnumWindows: all top-level windows at inject time ---");
+    EnumWindows(WndEnum::Proc, 0);
+    iLog("--- EnumWindows: done ---");
 
-    using clk = std::chrono::high_resolution_clock;
-    using ms  = std::chrono::milliseconds;
-
-    // Returns true if the byte at addr indicates a standard EBP-frame prologue.
     auto isStdcall = [](uintptr_t addr) -> bool {
         return addr && (*reinterpret_cast<const unsigned char*>(addr) == 0x55);
-    };
+        };
 
-    // Hook bindSingletonFunction — picks stdcall or cdecl variant automatically.
     auto hookBind = [&](uintptr_t addr) -> MH_STATUS {
         if (!addr) return MH_ERROR_NOT_EXECUTABLE;
         bool stdcall_ = isStdcall(addr);
-        char buf[80];
-        snprintf(buf, sizeof(buf), "  bindSingleton -> 0x%08X  (%s)",
-            (unsigned)addr, stdcall_ ? "stdcall" : "cdecl");
-        iLog(buf);
         LPVOID fn = stdcall_
             ? reinterpret_cast<LPVOID>(&hooked_bindSingletonFunction)
             : reinterpret_cast<LPVOID>(&hooked_bindSingletonFunction_cdecl);
         return MH_CreateHook(reinterpret_cast<LPVOID>(addr), fn,
             reinterpret_cast<LPVOID*>(&original_bindSingletonFunction));
-    };
+        };
 
-    // Hook callGlobalField — picks stdcall or cdecl variant automatically.
     auto hookCall = [&](uintptr_t addr) -> MH_STATUS {
         if (!addr) return MH_ERROR_NOT_EXECUTABLE;
         bool stdcall_ = isStdcall(addr);
-        char buf[80];
-        snprintf(buf, sizeof(buf), "  callGlobalField -> 0x%08X  (%s)",
-            (unsigned)addr, stdcall_ ? "stdcall" : "cdecl");
-        iLog(buf);
         LPVOID fn = stdcall_
             ? reinterpret_cast<LPVOID>(&hooked_callGlobalField)
             : reinterpret_cast<LPVOID>(&hooked_callGlobalField_cdecl);
         return MH_CreateHook(reinterpret_cast<LPVOID>(addr), fn,
             reinterpret_cast<LPVOID*>(&original_callGlobalField));
-    };
+        };
 
-    // ---- Step 1: MH_Initialize + get module info ----
-    auto t0 = clk::now();
-    iLog("MH_Initialize...");
+    // ---- Step 1: Initialize hooks and memory mapping ----
     MH_Initialize();
-    InitTextRange();  // must run before any hook fires so IsInText() works
+    InitTextRange();
 
     uintptr_t modBase = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
-    // Read SizeOfImage from the PE optional header.
     auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(modBase);
-    auto* nt  = reinterpret_cast<IMAGE_NT_HEADERS*>(modBase + dos->e_lfanew);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(modBase + dos->e_lfanew);
     uintptr_t modSize = nt->OptionalHeader.SizeOfImage;
 
-    // ---- Step 2: FindPattern — fast (<1ms) ----
-    iLog("FindPattern: all targets...");
+    // ---- Step 2: Address Resolution ----
     uintptr_t bind_func = FindPattern(bindSingletonFunction_x86_PATTERN, bindSingletonFunction_x86_MASK);
-    uintptr_t call_func = FindPattern(callGlobalField_PATTERN,            callGlobalField_MASK);
-    uintptr_t main_func = FindPattern(mainLoop_x86_PATTERN,               mainLoop_x86_MASK);
-    auto t1 = clk::now();
-
-    {
-        char buf[192];
-        snprintf(buf, sizeof(buf),
-            "FindPattern: bind=0x%08X  call=0x%08X  main=0x%08X  (%lldms)",
-            (unsigned)bind_func, (unsigned)call_func, (unsigned)main_func,
-            (long long)std::chrono::duration_cast<ms>(t1 - t0).count());
-        iLog(buf);
-    }
+    uintptr_t call_func = FindPattern(callGlobalField_PATTERN, callGlobalField_MASK);
+    uintptr_t main_func = FindPattern(mainLoop_x86_PATTERN, mainLoop_x86_MASK);
 
     if (!main_func) {
-        iLog("FATAL: mainLoop pattern not found — aborting");
+        iLog("CRITICAL: Component mismatch - aborting");
         return 0;
     }
 
-    // ---- Step 3: Cache / auto-finder if FindPattern missed bind or call ----
+    // Cache retrieval for optimized startup
     if (!bind_func || !call_func) {
         uintptr_t cacheBind = 0, cacheCall = 0;
         if (ReadCache(modBase, modSize, &cacheBind, &cacheCall)) {
             if (!bind_func) bind_func = cacheBind;
             if (!call_func) call_func = cacheCall;
-            char buf[128];
-            snprintf(buf, sizeof(buf),
-                "Cache hit — bind=0x%08X  call=0x%08X",
-                (unsigned)bind_func, (unsigned)call_func);
-            iLog(buf);
-        } else {
-            iLog("Cache miss — running AutoFindHookTargets (slow path, first run)...");
+        }
+        else {
             AutoFinderResult ar = AutoFindHookTargets();
-            auto t2 = clk::now();
-            {
-                char buf[128];
-                snprintf(buf, sizeof(buf),
-                    "AutoFind: %lldms  success=%d  bind=0x%08X  call=0x%08X",
-                    (long long)std::chrono::duration_cast<ms>(t2 - t1).count(),
-                    (int)ar.success,
-                    (unsigned)ar.bindSingletonFunction,
-                    (unsigned)ar.callGlobalField);
-                iLog(buf);
-            }
             if (ar.bindSingletonFunction || ar.callGlobalField)
                 WriteCache(modBase, modSize, ar.bindSingletonFunction, ar.callGlobalField);
-
             if (!bind_func && ar.bindSingletonFunction) bind_func = ar.bindSingletonFunction;
             if (!call_func && ar.callGlobalField)       call_func = ar.callGlobalField;
         }
     }
 
-    // ---- Step 4: Install hooks with convention detection ----
-    iLog("MH_CreateHook...");
+    // ---- Step 3: Deployment ----
     hookBind(bind_func);
-
-    // callGlobalField handles onTextMessage/onTalk — nice-to-have, not critical.
-    // Skip it on cdecl servers to avoid stack corruption and Lua errors.
-    if (call_func) {
-        if (isStdcall(call_func)) {
-            hookCall(call_func);
-        } else {
-            char buf[80];
-            snprintf(buf, sizeof(buf),
-                "callGlobalField 0x%08X is cdecl — hook skipped to avoid crash",
-                (unsigned)call_func);
-            iLog(buf);
-        }
+    if (call_func && isStdcall(call_func)) {
+        hookCall(call_func);
     }
 
     MH_STATUS r = MH_CreateHook(reinterpret_cast<LPVOID>(main_func),
         reinterpret_cast<LPVOID>(&hooked_MainLoop),
         reinterpret_cast<LPVOID*>(&original_mainLoop));
-    if (r != MH_OK) {
-        iLog("FATAL: mainLoop MH_CreateHook failed — aborting");
-        return 0;
-    }
 
-    // ---- Step 5: Enable all hooks at once ----
-    iLog("MH_EnableHook(MH_ALL_HOOKS)...");
+    if (r != MH_OK) return 0;
+
     MH_EnableHook(MH_ALL_HOOKS);
-    auto t3 = clk::now();
 
-    {
-        char buf[128];
-        snprintf(buf, sizeof(buf), "Hooks live — total init time: %lldms",
-            (long long)std::chrono::duration_cast<ms>(t3 - t0).count());
-        iLog(buf);
-    }
+    // ---- Step 4: Calibration Wait (2 s timeout, then force with available samples) ----
+    // Wait up to 1 s for natural class bindings to arrive first.
+    for (int i = 0; i < 100 && !g_offsetsCalibrated; ++i) Sleep(10);
 
-    // ---- Step 6: Wait for calibration then wait for bindings ----
-    // Phase A: wait for offset calibration to complete (requires ~15 samples each).
-    iLog("Waiting for offset calibration...");
-    {
-        int calibWait = 0;
-        while (!g_offsetsCalibrated) {
-            Sleep(10);
-            ++calibWait;
-            if (calibWait > 3000) {
-                // Calibration timed out — fall back to BuildConfig.h defaults and proceed.
-                iLog("TIMEOUT: calibration incomplete — using default offsets");
-                g_offsetsCalibrated = true;  // unblock capture phase
-                break;
-            }
+    // If still uncalibrated, inject a synthetic sample: call getLocalPlayer() and
+    // then getId() on the result.  These dispatch through scheduleEventEx, which
+    // fires on the next main-loop tick and may trigger lazy Lua binding calls for
+// The LocalPlayer/Thing class — giving the histogram a real sample to read.
+    if (!g_offsetsCalibrated) {
+        iLog("Calibration sample inject: triggering Thing::getId via internal map");
+
+        uintptr_t lp = g_game->getLocalPlayer();
+        {
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                "  localPlayer ptr=0x%08X  isOnline=%d",
+                (unsigned)lp, (int)g_game->isOnline());
+            iLog(msg);
         }
-        char buf[128];
-        snprintf(buf, sizeof(buf),
-            "Calibration done: singleton=0x%02X class=0x%02X waited=%dms",
-            singletonFunctionOffset, classFunctionOffset, calibWait * 10);
-        iLog(buf);
-    }
 
-    // Phase B: wait for g_game.look to be captured with the calibrated offsets.
-    iLog("Waiting for g_game.look...");
-    int waitCount = 0;
-    while (!SingletonFunctions["g_game.look"].first) {
-        Sleep(10);
-        ++waitCount;
-        if (waitCount > 3000) {
-            iLog("TIMEOUT: g_game.look not captured after 30s");
-            break;
-        }
-    }
-
-    {
-        char buf[192];
-        snprintf(buf, sizeof(buf),
-            "Wait done: g_game.look=0x%08X  waited=%dms  Singletons=%d  ClassMembers=%d",
-            (unsigned)SingletonFunctions["g_game.look"].first,
-            waitCount * 10,
-            (int)SingletonFunctions.size(),
-            (int)ClassMemberFunctions.size());
-        iLog(buf);
-    }
-
-    // ---- Step 6b: Detect Lua wrapper servers ----
-    bool isLuaWrapperServer = false;
-    {
-        uintptr_t hp = ClassMemberFunctions["LocalPlayer.getHealth"];
-        uintptr_t mp = ClassMemberFunctions["LocalPlayer.getMana"];
-        uintptr_t lv = ClassMemberFunctions["LocalPlayer.getLevel"];
-        uintptr_t mh = ClassMemberFunctions["LocalPlayer.getMaxHealth"];
-
-        char buf[256];
-        if (ClassMemberFunctions.size() < 10) {
-            // No class members captured at all — Lua wrapper server that exposes only singletons
-            isLuaWrapperServer = true;
-            snprintf(buf, sizeof(buf),
-                "LuaWrapper detect: ClassMemberFunctions=%d (nearly empty) -> LUA WRAPPER SERVER",
-                (int)ClassMemberFunctions.size());
-            iLog(buf);
+        if (lp && ClassMemberFunctions.count("Thing.getId")) {
+            uintptr_t fnAddr = ClassMemberFunctions["Thing.getId"];
+            // Call via explicit __fastcall cast — bypasses the gameCall macro and
+            // avoids C2227/E3364 since lp is a uintptr_t, not a class pointer.
+            uint32_t probeId = reinterpret_cast<uint32_t(__fastcall*)(uintptr_t)>(fnAddr)(lp);
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                "  Thing::getId fn=0x%08X  ptr=0x%08X  result=%u",
+                (unsigned)fnAddr, (unsigned)lp, probeId);
+            iLog(msg);
         } else {
-            int dupes = 0;
-            if (hp && hp == mp) dupes++;
-            if (hp && hp == lv) dupes++;
-            if (hp && hp == mh) dupes++;
-
-            isLuaWrapperServer = (dupes >= 2);
-
-            snprintf(buf, sizeof(buf),
-                "LuaWrapper detect: hp=0x%08X mp=0x%08X lv=0x%08X mh=0x%08X dupes=%d -> %s",
-                (unsigned)hp, (unsigned)mp, (unsigned)lv, (unsigned)mh, dupes,
-                isLuaWrapperServer ? "LUA WRAPPER SERVER" : "direct C++ server");
-            iLog(buf);
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                "  Thing.getId not found in ClassMemberFunctions  lp=0x%08X", (unsigned)lp);
+            iLog(msg);
         }
+
+        // Wait the remaining 1 s for the sample to propagate
+        for (int i = 0; i < 100 && !g_offsetsCalibrated; ++i) Sleep(10);
     }
+    if (!g_offsetsCalibrated) ForceCalibrate();
 
-    if (isLuaWrapperServer) {
-        uintptr_t isOnline = SingletonFunctions["g_game.isOnline"].first;
-        uintptr_t getLP    = SingletonFunctions["g_game.getLocalPlayer"].first;
-        uintptr_t walk     = SingletonFunctions["g_game.walk"].first;
-
-        char buf[256];
-        snprintf(buf, sizeof(buf),
-            "Singleton check: isOnline=0x%08X getLP=0x%08X walk=0x%08X",
-            (unsigned)isOnline, (unsigned)getLP, (unsigned)walk);
-        iLog(buf);
-
-        bool singletonsUnique = (isOnline != getLP) && (isOnline != walk) && (getLP != walk);
-        iLog(singletonsUnique ? "Singletons are UNIQUE — function calls OK"
-                              : "Singletons are SHARED — also wrappers!");
-    }
-    g_isLuaWrapperServer = isLuaWrapperServer;
-
-    if (isLuaWrapperServer) {
-        iLog("Running OffsetResolver for Lua wrapper server...");
-        bool ok = RunOffsetResolver();
-        char buf[256];
-        snprintf(buf, sizeof(buf),
-            "OffsetResolver: ok=%d  health=0x%X maxHealth=0x%X mana=0x%X level=0x%X soul=0x%X stamina=0x%X",
-            (int)ok,
-            g_botOffsets.creature_health, g_botOffsets.creature_maxHealth,
-            g_botOffsets.player_mana,     g_botOffsets.player_level,
-            g_botOffsets.player_soul,     g_botOffsets.player_stamina);
-        iLog(buf);
-        snprintf(buf, sizeof(buf),
-            "OffsetResolver: g_game_ptr=0x%08X game_localPlayer=0x%X",
-            (unsigned)g_botOffsets.g_game_ptr_addr, g_botOffsets.game_localPlayer);
-        iLog(buf);
-
-        // Trust the OffsetResolver values — no server-specific overrides.
-        // Nostalrius note: if health shows wrong (e.g. 0x494 instead of 0x4C0), fix
-        // OffsetResolver's getter disassembly, don't re-add overrides here.
-        snprintf(buf, sizeof(buf),
-            "Final offsets: hp=0x%X mhp=0x%X mp=0x%X mmp=0x%X lvl=0x%X soul=0x%X stam=0x%X pos=0x%X",
-            g_botOffsets.creature_health,    g_botOffsets.creature_maxHealth,
-            g_botOffsets.player_mana,        g_botOffsets.player_maxMana,
-            g_botOffsets.player_level,       g_botOffsets.player_soul,
-            g_botOffsets.player_stamina,     g_botOffsets.thing_positionOffset);
-        iLog(buf);
-
-        // Diagnostic: log walker-critical function addresses to determine which are safe.
-        // Map functions use SingletonFunctions (safe on Lua wrapper servers).
-        // LocalPlayer walk functions use ClassMemberFunctions (may be Lua wrappers).
-        char wbuf[512];
-        snprintf(wbuf, sizeof(wbuf),
-            "Walker singletons: autoWalk=0x%08X findPath=0x%08X getTile=0x%08X getSpectators=0x%08X isSightClear=0x%08X",
-            (unsigned)SingletonFunctions["g_game.autoWalk"].first,
-            (unsigned)SingletonFunctions["g_map.findPath"].first,
-            (unsigned)SingletonFunctions["g_map.getTile"].first,
-            (unsigned)SingletonFunctions["g_map.getSpectators"].first,
-            (unsigned)SingletonFunctions["g_map.isSightClear"].first);
-        iLog(wbuf);
-        snprintf(wbuf, sizeof(wbuf),
-            "Walker classmembers: LP.autoWalk=0x%08X LP.stopAutoWalk=0x%08X LP.isAutoWalking=0x%08X Tile.isWalkable=0x%08X",
-            (unsigned)ClassMemberFunctions["LocalPlayer.autoWalk"],
-            (unsigned)ClassMemberFunctions["LocalPlayer.stopAutoWalk"],
-            (unsigned)ClassMemberFunctions["LocalPlayer.isAutoWalking"],
-            (unsigned)ClassMemberFunctions["Tile.isWalkable"]);
-        iLog(wbuf);
-        iLog(SingletonFunctions.count("g_map.isWalkable") ? "g_map.isWalkable EXISTS" : "g_map.isWalkable NOT FOUND");
-    }
-
-    // ---- Step 7: Install look hook (stdcall servers only) ----
-    if (SingletonFunctions["g_game.look"].first) {
-        uintptr_t lookAddr = SingletonFunctions["g_game.look"].first;
-        unsigned char lookFirstByte = *reinterpret_cast<const unsigned char*>(lookAddr);
-        if (lookFirstByte == 0x55) {
-            MH_CreateHook(reinterpret_cast<LPVOID>(lookAddr),
-                          reinterpret_cast<LPVOID>(&hooked_Look),
-                          reinterpret_cast<LPVOID*>(&look_original));
-            MH_EnableHook(reinterpret_cast<LPVOID>(lookAddr));
-            iLog("Look hook installed");
-        } else {
-            char buf[80];
-            snprintf(buf, sizeof(buf),
-                "g_game.look is cdecl (0x%02X) — look hook skipped", lookFirstByte);
-            iLog(buf);
+    // ---- Step 5: Wait for game to be online (replaces window detection) ----
+    // Poll g_game->isOnline() every 100 ms for up to 30 s.  Works on any
+    // OTClient-based server (Miracle, Arcanum, etc.) without relying on window
+    // class names or process enumeration.
+    {
+        bool online = false;
+        for (int i = 0; i < 300; ++i) {   // 300 × 100 ms = 30 s
+            if (g_game->isOnline()) { online = true; break; }
+            Sleep(100);
         }
-    } else {
-        iLog("g_game.look not found — look hook skipped");
+        if (online) iLog("isOnline: true — proceeding");
+        else        iLog("isOnline: timeout (30 s) — proceeding anyway");
     }
 
+    // ---- Step 6: Service Ready ----
     g_ready = true;
-    iLog("g_ready=true — starting gRPC server");
 
-    {
-        char dbg[256];
-        auto it = ClassMemberFunctions.find("Thing.isLyingCorpse");
-        wsprintfA(dbg, "[EasyBot] Thing.isLyingCorpse = %s (ptr=%p)\n",
-            it != ClassMemberFunctions.end() ? "FOUND" : "NOT FOUND",
-            it != ClassMemberFunctions.end() ? (void*)it->second : nullptr);
-        OutputDebugStringA(dbg);
-
-        it = ClassMemberFunctions.find("Creature.isDead");
-        wsprintfA(dbg, "[EasyBot] Creature.isDead = %s (ptr=%p)\n",
-            it != ClassMemberFunctions.end() ? "FOUND" : "NOT FOUND",
-            it != ClassMemberFunctions.end() ? (void*)it->second : nullptr);
-        OutputDebugStringA(dbg);
-    }
+    // Heartbeat thread: log isOnline() every 5 s so the init log confirms the
+    // bot remains active while in-game.  Runs until the process exits.
+    struct Heartbeat {
+        static DWORD WINAPI Run(LPVOID) {
+            for (int tick = 1; ; ++tick) {
+                Sleep(5000);
+                bool online = g_game->isOnline();
+                char msg[64];
+                snprintf(msg, sizeof(msg),
+                    "Heartbeat tick=%d  isOnline=%d", tick, (int)online);
+                FILE* f = fopen("C:\\easybot_init.log", "a");
+                if (f) { fprintf(f, "%s\n", msg); fclose(f); }
+            }
+            return 0;
+        }
+    };
+    CreateThread(NULL, 0, Heartbeat::Run, NULL, 0, NULL);
 
     RunServer();
     return 0;
 }
 
-
 struct BotLoader {
     BotLoader() {
-        CreateThread(NULL, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(EasyBot), NULL, 0, NULL);
+        // Launches EasyBot on its own thread
+        CreateThread(NULL, 0, EasyBotInit, NULL, 0, NULL);
     }
 };
 static BotLoader loader;

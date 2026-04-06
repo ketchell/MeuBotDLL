@@ -379,18 +379,24 @@ void ApplyProfile(const ServerProfile* profile) {
         sLog("Bindings already captured (scan path) — skipping wait");
     }
 
-    // ---- Look hook (stdcall servers only) ----
+    // ---- Look hook ----
     uintptr_t lookAddr = SingletonFunctions["g_game.look"].first;
+    {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Look hook: lookAddr=0x%08X", (unsigned)lookAddr);
+        sLog(buf);
+    }
     if (lookAddr) {
-        if (*reinterpret_cast<const unsigned char*>(lookAddr) == 0x55) {
-            MH_CreateHook(reinterpret_cast<LPVOID>(lookAddr),
-                reinterpret_cast<LPVOID>(&hooked_Look),
-                reinterpret_cast<LPVOID*>(&look_original));
-            MH_EnableHook(reinterpret_cast<LPVOID>(lookAddr));
-            sLog("Look hook installed");
-        } else {
-            sLog("g_game.look is cdecl — look hook skipped");
-        }
+        MH_STATUS createStatus = MH_CreateHook(
+            reinterpret_cast<LPVOID>(lookAddr),
+            reinterpret_cast<LPVOID>(&hooked_Look),
+            reinterpret_cast<LPVOID*>(&look_original));
+        MH_STATUS enableStatus = MH_EnableHook(reinterpret_cast<LPVOID>(lookAddr));
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+            "Look hook: createStatus=%d  enableStatus=%d  lookAddr=0x%08X",
+            (int)createStatus, (int)enableStatus, (unsigned)lookAddr);
+        sLog(buf);
     } else {
         sLog("g_game.look not found — look hook skipped");
     }

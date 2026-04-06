@@ -33,6 +33,18 @@ inline bool     g_offsetsCalibrated     = false;
 // Called once before hooks are enabled to record the .text section range.
 void InitTextRange();
 
+// Forces calibration to complete with whatever samples have been collected so far.
+// Call this after a timeout if g_offsetsCalibrated is still false.
+void ForceCalibrate();
+
+// Clears class calibration state so the histogram can rebuild from scratch.
+// Call when Thing.getId returns null after calibration has already completed.
+void ResetClassCalibration();
+
+// Re-replays the calibration buffer using newOffset and locks classFunctionOffset
+// to that value.  Used by Thing::getId brute-force fallback.
+void ForceClassOffset(uint32_t newOffset);
+
 typedef void(__stdcall* bindSingletonFunction_t)(uintptr_t, uintptr_t, uintptr_t);
 inline bindSingletonFunction_t original_bindSingletonFunction = nullptr;
 void __stdcall hooked_bindSingletonFunction(uintptr_t, uintptr_t, uintptr_t);

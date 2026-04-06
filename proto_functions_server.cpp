@@ -398,6 +398,19 @@ Status BotServiceImpl::CanPerformGameAction(ServerContext* context, const google
     return Status::OK;
 }
 
+Status BotServiceImpl::GetPendingActions(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::Int32Value* response) {
+    response->set_value(g_pendingActions.load());
+    return Status::OK;
+}
+
+Status BotServiceImpl::IsBusy(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::BoolValue* response) {
+    rpcLog("IsBusy");
+    if (!g_ready) return notReady();
+    LocalPlayerPtr lp = g_game->getLocalPlayer();
+    response->set_value(LocalPlayer::isBusy(lp));
+    return Status::OK;
+}
+
 Status BotServiceImpl::IsOnline(ServerContext* context, const google::protobuf::Empty* request, google::protobuf::BoolValue* response) {
     rpcLog("IsOnline");
     if (!g_ready) return notReady();
@@ -650,6 +663,13 @@ Status BotServiceImpl::GetMaxMana(ServerContext* context, const google::protobuf
     return Status::OK;
 }
 
+Status BotServiceImpl::GetManaShield(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
+    rpcLog("GetManaShield");    if (!g_ready) return notReady();
+    if (g_isLuaWrapperServer) return notLuaWrapper();
+    response->set_value(g_localPlayer->getManaShield(toPtr<LocalPlayer>(request->value())));
+    return Status::OK;
+}
+
 Status BotServiceImpl::GetSoul(ServerContext* context, const google::protobuf::UInt64Value* request, google::protobuf::UInt32Value* response) {
     rpcLog("GetSoul");    if (!g_ready) return notReady();
     if (g_isLuaWrapperServer) {
@@ -675,6 +695,12 @@ Status BotServiceImpl::GetStamina(ServerContext* context, const google::protobuf
 Status BotServiceImpl::GetInventoryItem(ServerContext* context, const bot::bot_GetInventoryItemRequest* request, google::protobuf::UInt64Value* response) {
     rpcLog("GetInventoryItem");    if (g_isLuaWrapperServer) return notLuaWrapper();
     response->set_value(g_localPlayer->getInventoryItem(toPtr<LocalPlayer>(request->localplayer()), static_cast<Otc::InventorySlot>(request->inventoryslot())));
+    return Status::OK;
+}
+
+Status BotServiceImpl::HasEquippedItemId(ServerContext* context, const bot::bot_HasEquippedItemIdRequest* request, google::protobuf::BoolValue* response) {
+    rpcLog("HasEquippedItemId");    if (g_isLuaWrapperServer) return notLuaWrapper();
+    response->set_value(g_localPlayer->hasEquippedItemId(toPtr<LocalPlayer>(request->localplayer()), static_cast<uint16_t>(request->itemid()), request->tier()));
     return Status::OK;
 }
 
@@ -1034,37 +1060,56 @@ static bool OpenOrCreatePortMap() {
     return g_portMap != nullptr;
 }
 
+// Find the first visible top-level window that belongs to the current process.
+// This is reliable regardless of Qt version, SDL, or any other framework — we
+// are injected into the target process, so any visible window it owns is the
+// game window.
+struct FindGameWindowCtx {
+    DWORD pid;
+    HWND  result;
+};
+
 static BOOL CALLBACK FindGameWindowProc(HWND hwnd, LPARAM lParam) {
-    DWORD windowPid = 0;
-    GetWindowThreadProcessId(hwnd, &windowPid);
-    if (windowPid == GetCurrentProcessId()) {
-        char title[256] = "<no title>";
-        GetWindowTextA(hwnd, title, sizeof(title));
-        BOOL visible = IsWindowVisible(hwnd);
+    if (!IsWindowVisible(hwnd)) return TRUE;
 
-        char dbg[384];
-        wsprintfA(dbg,
-            "[EasyBot] EnumWindows: hwnd=0x%p  visible=%d  title=\"%s\"\n",
-            hwnd, (int)visible, title);
-        OutputDebugStringA(dbg);
+    DWORD wndPid = 0;
+    GetWindowThreadProcessId(hwnd, &wndPid);
 
-        // Take the first visible top-level window belonging to this process.
-        if (visible) {
-            *reinterpret_cast<HWND*>(lParam) = hwnd;
-            return FALSE; // stop enumeration
-        }
-    }
-    return TRUE; // continue
+    auto* ctx = reinterpret_cast<FindGameWindowCtx*>(lParam);
+    if (wndPid != ctx->pid) return TRUE;
+
+    // Skip windows with no title (tool windows, hidden helpers, etc.)
+    char title[256] = {};
+    GetWindowTextA(hwnd, title, sizeof(title));
+    if (title[0] == '\0') return TRUE;
+
+    ctx->result = hwnd;
+    return FALSE; // stop — first match wins
 }
 
 static HWND FindGameWindow() {
-    OutputDebugStringA("[EasyBot] EnumWindows: listing all windows for current PID ---\n");
-    HWND result = NULL;
-    EnumWindows(FindGameWindowProc, reinterpret_cast<LPARAM>(&result));
+    FindGameWindowCtx ctx = { GetCurrentProcessId(), NULL };
+    EnumWindows(FindGameWindowProc, reinterpret_cast<LPARAM>(&ctx));
+    HWND result = ctx.result;
 
-    char dbg[128];
-    wsprintfA(dbg, "[EasyBot] EnumWindows: selected hwnd=0x%p\n", result);
+    char cls[256]   = {};
+    char title[256] = {};
+    if (result) {
+        GetClassNameA(result, cls, sizeof(cls));
+        GetWindowTextA(result, title, sizeof(title));
+    }
+
+    char dbg[640];
+    if (result)
+        wsprintfA(dbg, "[EasyBot] FindGameWindow: hwnd=0x%p  class=\"%s\"  title=\"%s\"\n",
+            result, cls, title);
+    else
+        wsprintfA(dbg, "[EasyBot] FindGameWindow: no visible window found for pid=%lu\n",
+            ctx.pid);
     OutputDebugStringA(dbg);
+
+    FILE* fl = fopen("C:\\easybot_init.log", "a");
+    if (fl) { fprintf(fl, "%s", dbg); fclose(fl); }
     return result;
 }
 

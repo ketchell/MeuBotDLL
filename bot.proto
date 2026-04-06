@@ -1,8 +1,9 @@
 syntax = "proto3";
+
 import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
-package bot;
 
+package bot;
 
 service BotService {
   // --- Container.h ---
@@ -64,7 +65,12 @@ service BotService {
   rpc EquipItemId(bot_EquipItemIdRequest) returns (google.protobuf.Empty);
   rpc Mount(google.protobuf.BoolValue) returns (google.protobuf.Empty);
   rpc ChangeMapAwareRange(bot_ChangeMapAwareRangeRequest) returns (google.protobuf.Empty);
+  
+  // --- Critical State-Gate Synchronizers ---
   rpc CanPerformGameAction(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+  rpc GetPendingActions(google.protobuf.Empty) returns (google.protobuf.Int32Value);
+  rpc IsBusy(google.protobuf.Empty) returns (google.protobuf.BoolValue);
+
   rpc IsOnline(google.protobuf.Empty) returns (google.protobuf.BoolValue);
   rpc IsAttacking(google.protobuf.Empty) returns (google.protobuf.BoolValue);
   rpc IsFollowing(google.protobuf.Empty) returns (google.protobuf.BoolValue);
@@ -314,6 +320,7 @@ message bot_IsSightClearRequest {
 message bot_Uint64List {
   repeated uint64 items = 1;
 }
+
 message bot_DirectionList {
   repeated bot_Direction dirs = 1;
 }
@@ -326,62 +333,62 @@ message bot_Position {
 
 // Enums from const.h
 enum bot_MessageMode {
-  MessageNone                    = 0;
-  MessageSay                     = 1;
-  MessageWhisper                 = 2;
-  MessageYell                    = 3;
-  MessagePrivateFrom             = 4;
-  MessagePrivateTo               = 5;
-  MessageChannelManagement       = 6;
-  MessageChannel                 = 7;
-  MessageChannelHighlight        = 8;
-  MessageSpell                   = 9;
-  MessageNpcFrom                 = 10;
-  MessageNpcTo                   = 11;
-  MessageGamemasterBroadcast     = 12;
-  MessageGamemasterChannel       = 13;
-  MessageGamemasterPrivateFrom   = 14;
-  MessageGamemasterPrivateTo     = 15;
-  MessageLogin                   = 16;
-  MessageWarning                 = 17;
-  MessageGame                    = 18;
-  MessageFailure                 = 19;
-  MessageLook                    = 20;
-  MessageDamageDealed            = 21;
-  MessageDamageReceived          = 22;
-  MessageHeal                    = 23;
-  MessageExp                     = 24;
-  MessageDamageOthers            = 25;
-  MessageHealOthers              = 26;
-  MessageExpOthers               = 27;
-  MessageStatus                  = 28;
-  MessageLoot                    = 29;
-  MessageTradeNpc                = 30;
-  MessageGuild                   = 31;
-  MessagePartyManagement         = 32;
-  MessageParty                   = 33;
-  MessageBarkLow                 = 34;
-  MessageBarkLoud                = 35;
-  MessageReport                  = 36;
-  MessageHotkeyUse               = 37;
-  MessageTutorialHint            = 38;
-  MessageThankyou                = 39;
-  MessageMarket                  = 40;
-  MessageMana                    = 41;
-  MessageBeyondLast              = 42;
+  MessageNone = 0;
+  MessageSay = 1;
+  MessageWhisper = 2;
+  MessageYell = 3;
+  MessagePrivateFrom = 4;
+  MessagePrivateTo = 5;
+  MessageChannelManagement = 6;
+  MessageChannel = 7;
+  MessageChannelHighlight = 8;
+  MessageSpell = 9;
+  MessageNpcFrom = 10;
+  MessageNpcTo = 11;
+  MessageGamemasterBroadcast = 12;
+  MessageGamemasterChannel = 13;
+  MessageGamemasterPrivateFrom = 14;
+  MessageGamemasterPrivateTo = 15;
+  MessageLogin = 16;
+  MessageWarning = 17;
+  MessageGame = 18;
+  MessageFailure = 19;
+  MessageLook = 20;
+  MessageDamageDealed = 21;
+  MessageDamageReceived = 22;
+  MessageHeal = 23;
+  MessageExp = 24;
+  MessageDamageOthers = 25;
+  MessageHealOthers = 26;
+  MessageExpOthers = 27;
+  MessageStatus = 28;
+  MessageLoot = 29;
+  MessageTradeNpc = 30;
+  MessageGuild = 31;
+  MessagePartyManagement = 32;
+  MessageParty = 33;
+  MessageBarkLow = 34;
+  MessageBarkLoud = 35;
+  MessageReport = 36;
+  MessageHotkeyUse = 37;
+  MessageTutorialHint = 38;
+  MessageThankyou = 39;
+  MessageMarket = 40;
+  MessageMana = 41;
+  MessageBeyondLast = 42;
 
   // deprecated
-  MessageMonsterYell             = 43;
-  MessageMonsterSay              = 44;
-  MessageRed                     = 45;
-  MessageBlue                    = 46;
-  MessageRVRChannel              = 47;
-  MessageRVRAnswer               = 48;
-  MessageRVRContinue             = 49;
-  MessageGameHighlight           = 50;
-  MessageNpcFromStartBlock       = 51;
-  LastMessage                    = 52;
-  MessageInvalid                 = 255;
+  MessageMonsterYell = 43;
+  MessageMonsterSay = 44;
+  MessageRed = 45;
+  MessageBlue = 46;
+  MessageRVRChannel = 47;
+  MessageRVRAnswer = 48;
+  MessageRVRContinue = 49;
+  MessageGameHighlight = 50;
+  MessageNpcFromStartBlock = 51;
+  LastMessage = 52;
+  MessageInvalid = 255;
 };
 
 enum bot_InventorySlot {

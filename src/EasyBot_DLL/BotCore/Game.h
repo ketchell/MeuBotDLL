@@ -5,6 +5,9 @@
 #include "const.h"
 #include "EventDispatcher.h"
 #include "hooks.h"
+#include <atomic>
+
+extern std::atomic<int32_t> g_pendingActions;
 
 class Game {
     static Game* instance;
@@ -36,7 +39,7 @@ public:
     void openParent(const ContainerPtr& container);
     void close(const ContainerPtr& container);
     void refreshContainer(const ContainerPtr& container);
-    void attack(const CreaturePtr& creature, bool cancel);
+    void attack(const CreaturePtr& creature, bool cancel =false);
     void cancelAttack();
     void follow(const CreaturePtr& creature);
     void cancelAttackAndFollow();

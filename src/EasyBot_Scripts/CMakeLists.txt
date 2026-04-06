@@ -5,6 +5,11 @@ add_executable(EasyBotScripts
         ${CMAKE_SOURCE_DIR}/proto_functions_client.cpp
 )
 
+target_include_directories(EasyBotScripts PRIVATE
+        ${GEN_DIR}
+        ${CMAKE_SOURCE_DIR}
+)
+
 target_link_libraries(EasyBotScripts PRIVATE
         bot_proto
         gRPC::grpc++

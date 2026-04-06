@@ -92,3 +92,4 @@ To add a new offset (e.g., `player_capacity`):
 - **Creature list**: Walking `std::unordered_map` in memory is complex.
   Consider hooking `getCreatures()` through Lua instead.
 - **ASLR**: Handled automatically – we use the actual runtime base address.
+ene
